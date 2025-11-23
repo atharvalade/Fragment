@@ -1,0 +1,14 @@
+# Environment
+.env
+
+# Dependencies  
+node_modules/
+package-lock.json
+
+# Deployment artifacts
+artifacts/
+bridge-*.json
+
+# Logs
+*.log
+

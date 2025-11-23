@@ -1,0 +1,33 @@
+{
+  "name": "fragment-hyperlane-bridge",
+  "version": "1.0.0",
+  "description": "Bridge SAGA Dollar from SagaEVM to Fragment Chainlet",
+  "type": "module",
+  "scripts": {
+    "verify": "node scripts/verify-setup.js",
+    "balance": "node scripts/check-balances.js",
+    "explore": "node scripts/explore-sdk.js",
+    "deploy:bridge": "hardhat run scripts/deploy-bridge.js --network fragment",
+    "bridge:deposit": "node scripts/bridge-deposit.js",
+    "bridge:withdraw": "node scripts/bridge-withdraw.js",
+    "bridge:status": "node scripts/bridge-status.js"
+  },
+  "keywords": [
+    "hyperlane",
+    "bridge",
+    "saga",
+    "fragment"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@hyperlane-xyz/cli": "^5.0.0",
+    "@hyperlane-xyz/sdk": "^5.0.0",
+    "@nomicfoundation/hardhat-toolbox": "^3.0.0",
+    "@openzeppelin/contracts": "^5.0.1",
+    "dotenv": "^16.4.5",
+    "ethers": "^5.7.2",
+    "hardhat": "^2.27.0",
+    "js-yaml": "^4.1.1"
+  }
+}
