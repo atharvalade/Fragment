@@ -1,0 +1,33 @@
+# SagaEVM Network Configuration
+sagaevm:
+  name: sagaevm
+  chainId: 5464
+  domainId: 5464  # Same as chainId since it's small enough
+  protocol: ethereum
+  rpcUrls:
+    - http: https://5464.rpc.thirdweb.com
+  isTestnet: false
+  nativeToken:
+    name: GAS
+    symbol: GAS
+    decimals: 18
+  blockExplorers:
+    - name: SagaEVM Explorer
+      url: https://sagaevm.sagaexplorer.io
+      apiUrl: https://sagaevm.sagaexplorer.io/api
+      family: blockscout
+
+# Fragment Chainlet Configuration  
+fragment:
+  name: fragment
+  chainId: 2763843736868000
+  domainId: 27638  # Reduced number because chainId is too large
+  protocol: ethereum
+  rpcUrls:
+    - http: https://fragment-2763843736868000-1.jsonrpc.sagarpc.io
+  isTestnet: true
+  nativeToken:
+    name: MENT
+    symbol: MENT
+    decimals: 18
+

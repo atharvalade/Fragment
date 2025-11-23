@@ -1,0 +1,15 @@
+# Interchain Security Module Configuration
+# Using 1/1 multisig for simplicity (single validator)
+
+sagaevm:
+  type: multisigIsm
+  threshold: 1
+  validators:
+    - "0x9f93EebD463d4B7c991986a082d974E77b5a02Dc"
+
+fragment:
+  type: multisigIsm
+  threshold: 1
+  validators:
+    - "0x9f93EebD463d4B7c991986a082d974E77b5a02Dc"
+
