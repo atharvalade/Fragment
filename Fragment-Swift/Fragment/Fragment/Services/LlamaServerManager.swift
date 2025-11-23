@@ -101,9 +101,10 @@ class LlamaServerManager: ObservableObject {
             isRunning = true
             serverStatus = "Starting..."
             
-            // Wait a bit then check if it's responding
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                self.checkServerHealth()
+            // Wait for model to load then check if it's responding
+            // Large models can take 5-10 seconds to load
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                self.checkServerHealth(retryCount: 0)
             }
             
             print("✅ Llama server started on port \(serverPort)")
@@ -123,7 +124,8 @@ class LlamaServerManager: ObservableObject {
         print("⏹️ Llama server stopped")
     }
     
-    private func checkServerHealth() {
+    private func checkServerHealth(retryCount: Int) {
+        let maxRetries = 15 // Try for up to 30 seconds
         guard let url = URL(string: "http://127.0.0.1:\(serverPort)/health") else { return }
         
         URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
@@ -131,9 +133,17 @@ class LlamaServerManager: ObservableObject {
                 if error == nil, let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
                     self?.serverStatus = "Running"
                     self?.errorMessage = nil
+                    print("✅ Server health check passed")
+                } else if retryCount < maxRetries {
+                    // Model still loading, retry in 2 seconds
+                    self?.serverStatus = "Loading model..."
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        self?.checkServerHealth(retryCount: retryCount + 1)
+                    }
                 } else {
                     self?.serverStatus = "Not responding"
                     self?.errorMessage = "Server failed to start properly"
+                    print("❌ Server health check failed after \(maxRetries) retries")
                 }
             }
         }.resume()

@@ -6,6 +6,12 @@
 gemma-3-4b-it-q4_0.gguf
 llama-server
 
+# Dynamic libraries (4.5MB total - should be built from source)
+*.dylib
+
+# Backup files
+*.backup
+
 # macOS
 .DS_Store
 

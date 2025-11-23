@@ -6,8 +6,29 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		6D4E14692ED2CE1C00355F11 /* gemma-3-4b-it-q4_0.gguf in Resources */ = {isa = PBXBuildFile; fileRef = 6D4E14672ED2CE1C00355F11 /* gemma-3-4b-it-q4_0.gguf */; };
+		6D4E146A2ED2CE1C00355F11 /* llama-server in Resources */ = {isa = PBXBuildFile; fileRef = 6D4E14682ED2CE1C00355F11 /* llama-server */; };
+		6D4E146D2ED2CE1C00355F11 /* libmtmd.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 6D4E146C2ED2CE1C00355F11 /* libmtmd.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		6D4E14712ED2CE1C00355F11 /* libllama.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 6D4E14702ED2CE1C00355F11 /* libllama.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		6D4E14742ED2CE1C00355F11 /* libggml.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 6D4E14732ED2CE1C00355F11 /* libggml.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		6D4E14772ED2CE1C00355F11 /* libggml-cpu.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 6D4E14762ED2CE1C00355F11 /* libggml-cpu.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		6D4E147A2ED2CE1C00355F11 /* libggml-blas.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 6D4E14792ED2CE1C00355F11 /* libggml-blas.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		6D4E147D2ED2CE1C00355F11 /* libggml-metal.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 6D4E147C2ED2CE1C00355F11 /* libggml-metal.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		6D4E14802ED2CE1C00355F11 /* libggml-base.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 6D4E147F2ED2CE1C00355F11 /* libggml-base.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		6D4E14322ED2C2BE00355F11 /* Fragment.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Fragment.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		6D4E14672ED2CE1C00355F11 /* gemma-3-4b-it-q4_0.gguf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "gemma-3-4b-it-q4_0.gguf"; sourceTree = "<group>"; };
+		6D4E14682ED2CE1C00355F11 /* llama-server */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = "llama-server"; sourceTree = "<group>"; };
+		6D4E146C2ED2CE1C00355F11 /* libmtmd.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = libmtmd.dylib; sourceTree = "<group>"; };
+		6D4E14702ED2CE1C00355F11 /* libllama.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = libllama.dylib; sourceTree = "<group>"; };
+		6D4E14732ED2CE1C00355F11 /* libggml.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = libggml.dylib; sourceTree = "<group>"; };
+		6D4E14762ED2CE1C00355F11 /* libggml-cpu.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = "libggml-cpu.dylib"; sourceTree = "<group>"; };
+		6D4E14792ED2CE1C00355F11 /* libggml-blas.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = "libggml-blas.dylib"; sourceTree = "<group>"; };
+		6D4E147C2ED2CE1C00355F11 /* libggml-metal.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = "libggml-metal.dylib"; sourceTree = "<group>"; };
+		6D4E147F2ED2CE1C00355F11 /* libggml-base.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = "libggml-base.dylib"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -17,6 +38,25 @@
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		6D4E146E2ED2CE1C00355F11 /* CopyFiles */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				6D4E146D2ED2CE1C00355F11 /* libmtmd.dylib in CopyFiles */,
+				6D4E14712ED2CE1C00355F11 /* libllama.dylib in CopyFiles */,
+				6D4E14742ED2CE1C00355F11 /* libggml.dylib in CopyFiles */,
+				6D4E14772ED2CE1C00355F11 /* libggml-cpu.dylib in CopyFiles */,
+				6D4E147A2ED2CE1C00355F11 /* libggml-blas.dylib in CopyFiles */,
+				6D4E147D2ED2CE1C00355F11 /* libggml-metal.dylib in CopyFiles */,
+				6D4E14802ED2CE1C00355F11 /* libggml-base.dylib in CopyFiles */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		6D4E142F2ED2C2BE00355F11 /* Frameworks */ = {
@@ -29,14 +69,23 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		6D4E14292ED2C2BE00355F11 = {
-			isa = PBXGroup;
-			children = (
-				6D4E14342ED2C2BE00355F11 /* Fragment */,
-				6D4E14332ED2C2BE00355F11 /* Products */,
-			);
-			sourceTree = "<group>";
-		};
+	6D4E14292ED2C2BE00355F11 = {
+		isa = PBXGroup;
+		children = (
+			6D4E14672ED2CE1C00355F11 /* gemma-3-4b-it-q4_0.gguf */,
+			6D4E14682ED2CE1C00355F11 /* llama-server */,
+			6D4E146C2ED2CE1C00355F11 /* libmtmd.dylib */,
+			6D4E14702ED2CE1C00355F11 /* libllama.dylib */,
+			6D4E14732ED2CE1C00355F11 /* libggml.dylib */,
+			6D4E14762ED2CE1C00355F11 /* libggml-cpu.dylib */,
+			6D4E14792ED2CE1C00355F11 /* libggml-blas.dylib */,
+			6D4E147C2ED2CE1C00355F11 /* libggml-metal.dylib */,
+			6D4E147F2ED2CE1C00355F11 /* libggml-base.dylib */,
+			6D4E14342ED2C2BE00355F11 /* Fragment */,
+			6D4E14332ED2C2BE00355F11 /* Products */,
+		);
+		sourceTree = "<group>";
+	};
 		6D4E14332ED2C2BE00355F11 /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -48,28 +97,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		6D4E14312ED2C2BE00355F11 /* Fragment */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 6D4E143D2ED2C2BF00355F11 /* Build configuration list for PBXNativeTarget "Fragment" */;
-			buildPhases = (
-				6D4E142E2ED2C2BE00355F11 /* Sources */,
-				6D4E142F2ED2C2BE00355F11 /* Frameworks */,
-				6D4E14302ED2C2BE00355F11 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				6D4E14342ED2C2BE00355F11 /* Fragment */,
-			);
-			name = Fragment;
-			packageProductDependencies = (
-			);
-			productName = Fragment;
-			productReference = 6D4E14322ED2C2BE00355F11 /* Fragment.app */;
-			productType = "com.apple.product-type.application";
-		};
+	6D4E14312ED2C2BE00355F11 /* Fragment */ = {
+		isa = PBXNativeTarget;
+		buildConfigurationList = 6D4E143D2ED2C2BF00355F11 /* Build configuration list for PBXNativeTarget "Fragment" */;
+		buildPhases = (
+			6D4E142E2ED2C2BE00355F11 /* Sources */,
+			6D4E142F2ED2C2BE00355F11 /* Frameworks */,
+			6D4E14302ED2C2BE00355F11 /* Resources */,
+			6D4E146E2ED2CE1C00355F11 /* CopyFiles */,
+		);
+		buildRules = (
+		);
+		dependencies = (
+		);
+		fileSystemSynchronizedGroups = (
+			6D4E14342ED2C2BE00355F11 /* Fragment */,
+		);
+		name = Fragment;
+		packageProductDependencies = (
+		);
+		productName = Fragment;
+		productReference = 6D4E14322ED2C2BE00355F11 /* Fragment.app */;
+		productType = "com.apple.product-type.application";
+	};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -109,6 +159,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6D4E14692ED2CE1C00355F11 /* gemma-3-4b-it-q4_0.gguf in Resources */,
+				6D4E146A2ED2CE1C00355F11 /* llama-server in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -256,13 +308,27 @@
 				DEVELOPMENT_TEAM = 4F93UB4Z3L;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Fragment",
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.atharvalade.Fragment;
@@ -288,13 +354,27 @@
 				DEVELOPMENT_TEAM = 4F93UB4Z3L;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Fragment",
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.atharvalade.Fragment;
