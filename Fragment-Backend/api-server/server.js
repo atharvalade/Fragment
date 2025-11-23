@@ -760,6 +760,255 @@ app.get('/api/jobs/:jobId/results', async (req, res) => {
 });
 
 // ============================================================================
+// WORKER MANAGEMENT
+// ============================================================================
+
+// Load worker wallets
+const workerWalletsData = JSON.parse(fs.readFileSync(path.join(__dirname, 'worker-wallets.json'), 'utf-8'));
+const activeWorkers = new Map(); // Track active workers (workerId -> wallet instance)
+
+/**
+ * GET /api/workers
+ * Get all worker wallets and their balances
+ */
+app.get('/api/workers', async (req, res) => {
+  try {
+    console.log('\n👷 Fetching worker balances...');
+    
+    const workers = [];
+    
+    for (const workerData of workerWalletsData) {
+      // Get balances
+      const mentBalance = await sagaProvider.getBalance(workerData.address);
+      const wsagaBalance = await sagaDollar.balanceOf(workerData.address);
+      
+      // Check if registered on blockchain
+      let isRegistered = false;
+      try {
+        const workerInfo = await jobRouter.workers(workerData.address);
+        isRegistered = workerInfo.isActive;
+      } catch (error) {
+        // Not registered
+      }
+      
+      workers.push({
+        id: workerData.id,
+        address: workerData.address,
+        isActive: activeWorkers.has(workerData.id),
+        isRegistered,
+        balance: {
+          ment: parseFloat(ethers.formatEther(mentBalance)),
+          wsaga: parseFloat(ethers.formatEther(wsagaBalance))
+        }
+      });
+    }
+    
+    console.log(`   ✅ Found ${workers.length} workers (${activeWorkers.size} active)\n`);
+    
+    res.json({ workers });
+    
+  } catch (error) {
+    console.error('Error fetching workers:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/workers/:workerId/start
+ * Start a worker (activate it to listen for tasks)
+ */
+app.post('/api/workers/:workerId/start', async (req, res) => {
+  try {
+    const workerId = parseInt(req.params.workerId);
+    console.log(`\n🚀 Starting worker ${workerId}...`);
+    
+    // Find worker data
+    const workerData = workerWalletsData.find(w => w.id === workerId);
+    if (!workerData) {
+      return res.status(404).json({ error: 'Worker not found' });
+    }
+    
+    // Create wallet instance
+    const workerWallet = new ethers.Wallet(workerData.privateKey, sagaProvider);
+    
+    // Register worker on blockchain if not already registered
+    const workerInfo = await jobRouter.workers(workerData.address);
+    if (!workerInfo.isActive) {
+      console.log(`   Registering worker on blockchain...`);
+      const jobRouterWithWorker = jobRouter.connect(workerWallet);
+      const tx = await jobRouterWithWorker.registerWorker();
+      console.log(`   TX: ${tx.hash}`);
+      await tx.wait();
+      console.log(`   ✅ Worker registered!`);
+    }
+    
+    // Add to active workers
+    activeWorkers.set(workerId, workerWallet);
+    
+    console.log(`   ✅ Worker ${workerId} started and listening for tasks\n`);
+    
+    res.json({
+      success: true,
+      workerId,
+      address: workerData.address,
+      message: 'Worker started successfully'
+    });
+    
+  } catch (error) {
+    console.error('Error starting worker:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/workers/:workerId/stop
+ * Stop a worker
+ */
+app.post('/api/workers/:workerId/stop', async (req, res) => {
+  try {
+    const workerId = parseInt(req.params.workerId);
+    console.log(`\n🛑 Stopping worker ${workerId}...`);
+    
+    if (!activeWorkers.has(workerId)) {
+      return res.status(400).json({ error: 'Worker is not active' });
+    }
+    
+    activeWorkers.delete(workerId);
+    
+    console.log(`   ✅ Worker ${workerId} stopped\n`);
+    
+    res.json({
+      success: true,
+      workerId,
+      message: 'Worker stopped successfully'
+    });
+    
+  } catch (error) {
+    console.error('Error stopping worker:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/workers/available-tasks
+ * Get all available tasks that workers can claim
+ */
+app.get('/api/workers/available-tasks', async (req, res) => {
+  try {
+    console.log('\n📋 Fetching available tasks...');
+    
+    const taskCounter = await jobRouter.taskCounter();
+    const availableTasks = [];
+    
+    for (let i = 1; i <= taskCounter; i++) {
+      const task = await jobRouter.tasks(i);
+      
+      // Check if task is pending or assigned to a worker but not yet completed
+      if (Number(task.status) === 0 || Number(task.status) === 1) {
+        const job = await jobRouter.jobs(task.jobId);
+        
+        availableTasks.push({
+          taskId: i.toString(),
+          jobId: task.jobId.toString(),
+          status: ['Pending', 'Assigned', 'Completed', 'Failed'][Number(task.status)],
+          pieceCid: task.pieceCid,
+          assignedWorker: task.assignedWorker,
+          bounty: '0.01' // wSAGA
+        });
+      }
+    }
+    
+    console.log(`   ✅ Found ${availableTasks.length} available tasks\n`);
+    
+    res.json({ tasks: availableTasks });
+    
+  } catch (error) {
+    console.error('Error fetching available tasks:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/workers/:workerId/complete-task
+ * Complete a task (simulated - wait 1s and return "safe")
+ */
+app.post('/api/workers/:workerId/complete-task', async (req, res) => {
+  try {
+    const workerId = parseInt(req.params.workerId);
+    const { taskId } = req.body;
+    
+    console.log(`\n⚙️  Worker ${workerId} processing task ${taskId}...`);
+    
+    // Check if worker is active
+    const workerWallet = activeWorkers.get(workerId);
+    if (!workerWallet) {
+      return res.status(400).json({ error: 'Worker is not active' });
+    }
+    
+    // Get task details
+    const task = await jobRouter.tasks(taskId);
+    if (Number(task.status) !== 1) {
+      return res.status(400).json({ error: 'Task is not assigned' });
+    }
+    
+    // Check if assigned to this worker
+    if (task.assignedWorker.toLowerCase() !== workerWallet.address.toLowerCase()) {
+      return res.status(400).json({ error: 'Task is not assigned to this worker' });
+    }
+    
+    // Download input from Filecoin
+    console.log(`   Downloading input from Filecoin...`);
+    let inputText = '';
+    try {
+      const inputData = await downloadFromFilecoin(task.pieceCid);
+      inputText = inputData.data?.text || JSON.stringify(inputData);
+      console.log(`   Input: "${inputText.substring(0, 50)}..."`);
+    } catch (error) {
+      console.error(`   Could not download input:`, error.message);
+    }
+    
+    // Simulate AI processing (wait 1 second)
+    console.log(`   🤖 Running AI inference...`);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // Always return "safe" for now
+    const classification = 'safe';
+    console.log(`   ✅ Classification: ${classification}`);
+    
+    // Submit result to blockchain (skip Filecoin upload)
+    console.log(`   📤 Submitting result to blockchain...`);
+    const jobRouterWithWorker = jobRouter.connect(workerWallet);
+    const resultCid = `result-${classification}-task-${taskId}`;
+    
+    const tx = await jobRouterWithWorker.submitResult(taskId, resultCid);
+    console.log(`   TX: ${tx.hash}`);
+    const receipt = await tx.wait();
+    console.log(`   ✅ Result submitted!`);
+    
+    // Get updated balances
+    const wsagaBalance = await sagaDollar.balanceOf(workerWallet.address);
+    
+    console.log(`   💰 New balance: ${ethers.formatEther(wsagaBalance)} wSAGA`);
+    console.log(`   🎉 Task ${taskId} completed!\n`);
+    
+    res.json({
+      success: true,
+      taskId: taskId.toString(),
+      workerId,
+      classification,
+      txHash: tx.hash,
+      explorerUrl: getExplorerUrl(tx.hash),
+      bountyEarned: '0.01',
+      newBalance: parseFloat(ethers.formatEther(wsagaBalance))
+    });
+    
+  } catch (error) {
+    console.error('Error completing task:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
 // ERROR HANDLING
 // ============================================================================
 

@@ -1,133 +1,78 @@
 import Foundation
 import Combine
 
-struct TaskFragment: Identifiable, Codable {
-    var id: String { fragmentId } // Use fragmentId as the id for Identifiable
-    let fragmentId: String
-    let jobId: String
-    let fragmentIndex: Int
-    let totalFragments: Int?  // Optional since it might not always be present
-    let data: FragmentData
-    let bountyAmount: Double
-    let filecoinUrl: String
-    var blobId: String?
-    var encryptionId: String?
-    var status: String
-    var workerId: String?
-    var result: FragmentResult?
-    
-    struct FragmentData: Codable {
-        let text: String
-    }
-    
-    struct FragmentResult: Codable {
-        let filecoinUrl: String?
-        let blobId: String?
-    }
-    
-    enum CodingKeys: String, CodingKey {
-        case fragmentId, jobId, fragmentIndex, totalFragments, data, bountyAmount
-        case filecoinUrl = "walrusUrl"
-        case blobId, encryptionId, status, workerId, result
-    }
-}
+// MARK: - API Response Models
 
-struct AvailableFragmentsResponse: Codable {
-    let count: Int
-    let fragments: [TaskFragment]
-}
-
-struct FragmentCompletionResponse: Codable {
-    let fragmentId: String
-    let status: String
-    let bountyAwarded: Double
-}
-
-struct WalletInfo: Codable {
+struct Worker: Identifiable, Codable {
+    let id: Int
     let address: String
-    let saga: Double
-    let usdc: Double
-    
-    enum CodingKeys: String, CodingKey {
-        case address
-        case saga = "sui"
-        case usdc
-    }
+    var isActive: Bool
+    var isRegistered: Bool
+    var balance: WorkerBalance
 }
 
-struct WalletResponse: Codable {
-    let walletA: WalletInfo
-    let walletB: WalletInfo
-    let walletC: WalletInfo
+struct WorkerBalance: Codable {
+    let ment: Double
+    let wsaga: Double
 }
+
+struct WorkersResponse: Codable {
+    let workers: [Worker]
+}
+
+struct Task: Identifiable, Codable {
+    var id: String { taskId }
+    let taskId: String
+    let jobId: String
+    let status: String
+    let pieceCid: String
+    let assignedWorker: String
+    let bounty: String
+}
+
+struct AvailableTasksResponse: Codable {
+    let tasks: [Task]
+}
+
+struct TaskCompletionResponse: Codable {
+    let success: Bool
+    let taskId: String
+    let workerId: Int
+    let classification: String
+    let txHash: String
+    let explorerUrl: String
+    let bountyEarned: String
+    let newBalance: Double
+}
+
+// MARK: - Worker Service
 
 class WorkerService: ObservableObject {
-    @Published var isWorking = false
-    @Published var availableFragments: [TaskFragment] = []
-    @Published var claimedFragments: [TaskFragment] = []
-    @Published var completedFragments: [TaskFragment] = []
-    @Published var usdcBalance: Double = 0.0
-    @Published var statusMessage = "Ready to work"
+    @Published var workers: [Worker] = []
+    @Published var activeWorkers: Set<Int> = []
+    @Published var availableTasks: [Task] = []
+    @Published var currentTasks: [Int: Task] = [:] // workerId -> current task
+    @Published var statusMessage = "Ready to start workers"
     @Published var errorMessage: String? = nil
     
-    private let apiBaseURL = "https://loose-under-prototype-pin.trycloudflare.com/api"
-    let workerId = UUID().uuidString
+    private let apiBaseURL = "http://localhost:3001/api"
     private var pollingTimer: Timer?
-    private var statusRefreshTimer: Timer?
-    private var balanceRefreshTimer: Timer?
     private var chatService: ChatService?
-    private var trackedFragmentIds: Set<String> = []
+    
+    init() {
+        // Load workers on init
+        fetchWorkers()
+    }
     
     func setChatService(_ chatService: ChatService) {
         self.chatService = chatService
     }
     
-    // MARK: - Worker Control
+    // MARK: - Worker Management
     
-    func startWorker() {
-        guard !isWorking else { return }
-        isWorking = true
-        statusMessage = "Looking for work..."
-        
-        // Start polling for available fragments
-        pollingTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
-            self?.fetchAvailableFragments()
-        }
-        
-        // Start refreshing fragment status every 2 seconds
-        statusRefreshTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            self?.refreshFragmentStatuses()
-        }
-        
-        // Start refreshing USDC balance every 5 seconds
-        balanceRefreshTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
-            self?.fetchUSDCBalance()
-        }
-        
-        // Initial fetches
-        fetchAvailableFragments()
-        fetchUSDCBalance()
-        
-        print("✅ Worker started: \(workerId)")
-    }
-    
-    func stopWorker() {
-        isWorking = false
-        pollingTimer?.invalidate()
-        pollingTimer = nil
-        statusRefreshTimer?.invalidate()
-        statusRefreshTimer = nil
-        balanceRefreshTimer?.invalidate()
-        balanceRefreshTimer = nil
-        statusMessage = "Worker stopped"
-        print("⏹️ Worker stopped")
-    }
-    
-    // MARK: - Balance Management
-    
-    private func fetchUSDCBalance() {
-        guard let url = URL(string: "\(apiBaseURL)/wallets") else {
-            print("❌ Invalid URL for fetching wallets")
+    func fetchWorkers() {
+        guard let url = URL(string: "\(apiBaseURL)/workers") else {
+            print("❌ Invalid URL for fetching workers")
             return
         }
         
@@ -135,308 +80,256 @@ class WorkerService: ObservableObject {
             guard let self = self else { return }
             
             if let error = error {
-                print("❌ Error fetching wallet balance: \(error.localizedDescription)")
+                print("❌ Error fetching workers: \(error.localizedDescription)")
                 return
             }
             
             guard let data = data else {
-                print("❌ No data received for wallet balance")
+                print("❌ No data received for workers")
                 return
             }
             
             do {
-                let walletResponse = try JSONDecoder().decode(WalletResponse.self, from: data)
+                let workersResponse = try JSONDecoder().decode(WorkersResponse.self, from: data)
                 
                 DispatchQueue.main.async {
-                    self.usdcBalance = walletResponse.walletB.usdc
+                    self.workers = workersResponse.workers
+                    print("✅ Loaded \(self.workers.count) workers")
                 }
             } catch {
-                print("❌ Error decoding wallet balance: \(error)")
+                print("❌ Error decoding workers: \(error)")
             }
         }.resume()
     }
     
-    // MARK: - Fragment Discovery
-    
-    private func refreshFragmentStatuses() {
-        // Refresh all tracked fragments (claimed and completed)
-        let allTracked = claimedFragments + completedFragments
-        
-        for fragment in allTracked {
-            guard let url = URL(string: "\(apiBaseURL)/fragments/available") else { continue }
-            
-            URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
-                guard let self = self,
-                      let data = data,
-                      let result = try? JSONDecoder().decode(AvailableFragmentsResponse.self, from: data) else {
-                    return
-                }
-                
-                // Find updated fragment in the response
-                if let updatedFragment = result.fragments.first(where: { $0.fragmentId == fragment.fragmentId }) {
-                    DispatchQueue.main.async {
-                        // Update the fragment with latest data from backend
-                        if let index = self.claimedFragments.firstIndex(where: { $0.fragmentId == fragment.fragmentId }) {
-                            self.claimedFragments[index] = updatedFragment
-                        }
-                        if let index = self.completedFragments.firstIndex(where: { $0.fragmentId == fragment.fragmentId }) {
-                            self.completedFragments[index] = updatedFragment
-                        }
-                    }
-                }
-            }.resume()
-        }
-    }
-    
-    private func fetchAvailableFragments() {
-        guard let url = URL(string: "\(apiBaseURL)/fragments/available?capability=gemma-text-classification") else {
-            print("❌ Invalid URL for fetching fragments")
+    func startWorker(workerId: Int) {
+        guard !activeWorkers.contains(workerId) else {
+            print("⚠️ Worker \(workerId) is already active")
             return
         }
         
-        print("🔍 Fetching available fragments from: \(url.absoluteString)")
+        print("🚀 Starting worker \(workerId)...")
         
-        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
-            guard let self = self else { return }
-            
-            if let error = error {
-                print("❌ Network error fetching fragments: \(error.localizedDescription)")
-                DispatchQueue.main.async {
-                    self.errorMessage = "Network error: \(error.localizedDescription)"
-                    self.statusMessage = "Failed to fetch fragments"
-                }
-                return
-            }
-            
-            guard let httpResponse = response as? HTTPURLResponse else {
-                print("❌ Invalid response type")
-                return
-            }
-            
-            print("📡 HTTP Status: \(httpResponse.statusCode)")
-            
-            guard let data = data else {
-                print("❌ No data received")
-                DispatchQueue.main.async {
-                    self.errorMessage = "No data received from server"
-                }
-                return
-            }
-            
-            // Print raw response for debugging
-            if let rawString = String(data: data, encoding: .utf8) {
-                print("📦 Raw response: \(rawString)")
-            }
-            
-            do {
-                let result = try JSONDecoder().decode(AvailableFragmentsResponse.self, from: data)
-                
-                print("✅ Successfully decoded \(result.count) fragments")
-                
-                DispatchQueue.main.async {
-                    self.availableFragments = result.fragments
-                    self.errorMessage = nil
-                    
-                    if result.count > 0 {
-                        self.statusMessage = "\(result.count) fragments available"
-                        
-                        // Auto-claim if we don't have any claimed fragments
-                        if self.claimedFragments.isEmpty {
-                            print("🎯 Auto-claiming first fragment...")
-                            self.claimFragment(result.fragments[0])
-                        }
-                    } else {
-                        self.statusMessage = "No fragments available"
-                    }
-                }
-            } catch {
-                print("❌ Error decoding fragments: \(error)")
-                if let decodingError = error as? DecodingError {
-                    switch decodingError {
-                    case .keyNotFound(let key, let context):
-                        print("   Missing key: \(key.stringValue) - \(context.debugDescription)")
-                    case .typeMismatch(let type, let context):
-                        print("   Type mismatch: \(type) - \(context.debugDescription)")
-                    case .valueNotFound(let type, let context):
-                        print("   Value not found: \(type) - \(context.debugDescription)")
-                    case .dataCorrupted(let context):
-                        print("   Data corrupted: \(context.debugDescription)")
-                    @unknown default:
-                        print("   Unknown decoding error")
-                    }
-                }
-                DispatchQueue.main.async {
-                    self.errorMessage = "Failed to decode response"
-                }
-            }
-        }.resume()
-    }
-    
-    // MARK: - Fragment Processing
-    
-    func claimFragment(_ fragment: TaskFragment) {
-        guard let url = URL(string: "\(apiBaseURL)/fragments/\(fragment.fragmentId)/claim") else {
-            print("❌ Invalid URL for claiming fragment")
+        guard let url = URL(string: "\(apiBaseURL)/workers/\(workerId)/start") else {
+            print("❌ Invalid URL for starting worker")
             return
         }
-        
-        print("🎯 Claiming fragment #\(fragment.fragmentIndex) (\(fragment.fragmentId))")
         
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        let body = ["workerId": workerId]
-        request.httpBody = try? JSONEncoder().encode(body)
         
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             guard let self = self else { return }
             
             if let error = error {
-                print("❌ Error claiming fragment: \(error.localizedDescription)")
+                print("❌ Error starting worker: \(error.localizedDescription)")
                 DispatchQueue.main.async {
-                    self.errorMessage = "Failed to claim fragment: \(error.localizedDescription)"
+                    self.errorMessage = "Failed to start worker: \(error.localizedDescription)"
                 }
                 return
             }
             
-            guard let data = data else {
-                print("❌ No data received when claiming fragment")
-                return
-            }
-            
-            if let rawString = String(data: data, encoding: .utf8) {
-                print("📦 Claim response: \(rawString)")
-            }
-            
-            do {
-                let claimedFragment = try JSONDecoder().decode(TaskFragment.self, from: data)
+            DispatchQueue.main.async {
+                self.activeWorkers.insert(workerId)
+                self.statusMessage = "Worker \(workerId) started"
+                print("✅ Worker \(workerId) started successfully")
                 
-                print("✅ Claimed fragment #\(claimedFragment.fragmentIndex)")
-                
-                DispatchQueue.main.async {
-                    // Remove from available
-                    self.availableFragments.removeAll { $0.fragmentId == claimedFragment.fragmentId }
-                    // Add to claimed
-                    self.claimedFragments.append(claimedFragment)
-                    self.statusMessage = "Processing fragment #\(claimedFragment.fragmentIndex)..."
-                    
-                    // Process the fragment
-                    self.processFragment(claimedFragment)
+                // Start polling if this is the first worker
+                if self.activeWorkers.count == 1 {
+                    self.startPolling()
                 }
-            } catch {
-                print("❌ Error decoding claimed fragment: \(error)")
+                
+                // Refresh workers to get updated status
+                self.fetchWorkers()
             }
         }.resume()
     }
     
-    private func processFragment(_ fragment: TaskFragment) {
-        guard let chatService = self.chatService else {
-            errorMessage = "Chat service not available"
+    func stopWorker(workerId: Int) {
+        guard activeWorkers.contains(workerId) else {
+            print("⚠️ Worker \(workerId) is not active")
             return
         }
         
-        let text = fragment.data.text
-        let prompt = "Classify the following text as 'safe' or 'unsafe' based on whether it contains hate speech, violence, or harmful content. Respond with ONLY 'safe' or 'unsafe'. Text: \"\(text)\""
+        print("🛑 Stopping worker \(workerId)...")
         
-        print("🤖 Classifying: \(text)")
-        
-        // Use Gemma to classify
-        Task {
-            await chatService.sendMessage(prompt)
-            
-            // Wait for response
-            try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
-            
-            // Get the last message (assistant's response)
-            let response = await MainActor.run {
-                chatService.messages.last?.content ?? "safe"
-            }
-            
-            let label = response.lowercased().contains("unsafe") ? "unsafe" : "safe"
-            
-            print("📊 Classification result: \(label)")
-            
-            // Complete the fragment
-            await self.completeFragment(fragment, label: label)
-        }
-    }
-    
-    private func completeFragment(_ fragment: TaskFragment, label: String) async {
-        guard let url = URL(string: "\(apiBaseURL)/fragments/\(fragment.fragmentId)/complete") else {
-            print("❌ Invalid URL for completing fragment")
+        guard let url = URL(string: "\(apiBaseURL)/workers/\(workerId)/stop") else {
+            print("❌ Invalid URL for stopping worker")
             return
         }
-        
-        print("📤 Completing fragment #\(fragment.fragmentIndex) with label: \(label)")
         
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        let result = [
-            "text": fragment.data.text,
-            "label": label
-        ]
-        
-        let body: [String: Any] = [
-            "result": result,
-            "workerId": workerId
-        ]
-        
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        
-        // Debug: Print request body
-        if let bodyData = request.httpBody, let bodyString = String(data: bodyData, encoding: .utf8) {
-            print("📤 Request body: \(bodyString)")
-        }
-        
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self = self else { return }
             
-            if let httpResponse = response as? HTTPURLResponse {
-                print("📡 Complete HTTP Status: \(httpResponse.statusCode)")
+            if let error = error {
+                print("❌ Error stopping worker: \(error.localizedDescription)")
+                return
             }
             
-            if let rawString = String(data: data, encoding: .utf8) {
-                print("📦 Complete response: \(rawString)")
-            }
-            
-            let responseData = try JSONDecoder().decode(FragmentCompletionResponse.self, from: data)
-            
-            print("✅ Fragment #\(fragment.fragmentIndex) completed successfully! Bounty: \(responseData.bountyAwarded) SAGA")
-            
-            await MainActor.run {
-                // Move from claimed to completed
-                if let index = claimedFragments.firstIndex(where: { $0.fragmentId == fragment.fragmentId }) {
-                    claimedFragments.remove(at: index)
+            DispatchQueue.main.async {
+                self.activeWorkers.remove(workerId)
+                self.currentTasks.removeValue(forKey: workerId)
+                self.statusMessage = "Worker \(workerId) stopped"
+                print("✅ Worker \(workerId) stopped successfully")
+                
+                // Stop polling if no workers are active
+                if self.activeWorkers.isEmpty {
+                    self.stopPolling()
                 }
                 
-                // Update fragment status to completed
-                var completedFragment = fragment
-                completedFragment.status = "completed"
-                
-                completedFragments.append(completedFragment)
-                statusMessage = "Completed! Earned +\(fragment.bountyAmount) USDC"
-                
-                print("✅ Fragment completed! Earned +\(fragment.bountyAmount) USDC")
-                
-                // Refresh balance immediately
-                self.fetchUSDCBalance()
-                
-                // Clear chat history
-                chatService?.clearChat()
+                // Refresh workers to get updated status
+                self.fetchWorkers()
             }
-        } catch {
-            print("❌ Error completing fragment: \(error.localizedDescription)")
-            await MainActor.run {
-                errorMessage = "Failed to complete fragment: \(error.localizedDescription)"
+        }.resume()
+    }
+    
+    // MARK: - Task Polling
+    
+    private func startPolling() {
+        print("🔄 Starting task polling...")
+        pollingTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
+            self?.fetchAvailableTasks()
+            self?.fetchWorkers() // Also refresh worker balances
+        }
+        
+        // Initial fetch
+        fetchAvailableTasks()
+    }
+    
+    private func stopPolling() {
+        print("⏹️ Stopping task polling")
+        pollingTimer?.invalidate()
+        pollingTimer = nil
+    }
+    
+    private func fetchAvailableTasks() {
+        guard let url = URL(string: "\(apiBaseURL)/workers/available-tasks") else {
+            print("❌ Invalid URL for fetching tasks")
+            return
+        }
+        
+        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+            guard let self = self else { return }
+            
+            if let error = error {
+                print("❌ Error fetching tasks: \(error.localizedDescription)")
+                return
             }
+            
+            guard let data = data else {
+                print("❌ No data received for tasks")
+                return
+            }
+            
+            do {
+                let tasksResponse = try JSONDecoder().decode(AvailableTasksResponse.self, from: data)
+                
+                DispatchQueue.main.async {
+                    self.availableTasks = tasksResponse.tasks
+                    
+                    // Auto-assign tasks to idle workers
+                    for workerId in self.activeWorkers {
+                        if self.currentTasks[workerId] == nil {
+                            // Worker is idle, find a task for them
+                            if let availableTask = tasksResponse.tasks.first(where: { task in
+                                task.status == "Assigned" && 
+                                task.assignedWorker == self.workers.first(where: { $0.id == workerId })?.address
+                            }) {
+                                print("🎯 Auto-assigning task \(availableTask.taskId) to worker \(workerId)")
+                                self.processTask(workerId: workerId, task: availableTask)
+                            }
+                        }
+                    }
+                }
+            } catch {
+                print("❌ Error decoding tasks: \(error)")
+            }
+        }.resume()
+    }
+    
+    // MARK: - Task Processing
+    
+    private func processTask(workerId: Int, task: Task) {
+        DispatchQueue.main.async {
+            self.currentTasks[workerId] = task
+            self.statusMessage = "Worker \(workerId) processing task \(task.taskId)"
+        }
+        
+        print("⚙️  Worker \(workerId) processing task \(task.taskId)...")
+        
+        // Simulate AI processing (1 second)
+        DispatchQueue.global().asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self = self else { return }
+            
+            // Complete the task
+            self.completeTask(workerId: workerId, taskId: task.taskId)
         }
     }
     
+    private func completeTask(workerId: Int, taskId: String) {
+        guard let url = URL(string: "\(apiBaseURL)/workers/\(workerId)/complete-task") else {
+            print("❌ Invalid URL for completing task")
+            return
+        }
+        
+        print("📤 Worker \(workerId) completing task \(taskId)...")
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body: [String: Any] = ["taskId": taskId]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self = self else { return }
+            
+            if let error = error {
+                print("❌ Error completing task: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    self.errorMessage = "Failed to complete task: \(error.localizedDescription)"
+                    self.currentTasks.removeValue(forKey: workerId)
+                }
+                return
+            }
+            
+            guard let data = data else {
+                print("❌ No data received when completing task")
+                return
+            }
+            
+            do {
+                let response = try JSONDecoder().decode(TaskCompletionResponse.self, from: data)
+                
+                print("✅ Task \(taskId) completed! Bounty: \(response.bountyEarned) wSAGA")
+                print("   TX: \(response.txHash)")
+                print("   New balance: \(response.newBalance) wSAGA")
+                
+                DispatchQueue.main.async {
+                    self.currentTasks.removeValue(forKey: workerId)
+                    self.statusMessage = "Worker \(workerId) earned \(response.bountyEarned) wSAGA!"
+                    
+                    // Refresh workers to update balances
+                    self.fetchWorkers()
+                    
+                    // Fetch available tasks again
+                    self.fetchAvailableTasks()
+                }
+            } catch {
+                print("❌ Error decoding completion response: \(error)")
+                DispatchQueue.main.async {
+                    self.currentTasks.removeValue(forKey: workerId)
+                }
+            }
+        }.resume()
+    }
+    
     deinit {
-        stopWorker()
+        stopPolling()
     }
 }
-

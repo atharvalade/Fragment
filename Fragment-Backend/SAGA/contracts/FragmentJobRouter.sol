@@ -12,7 +12,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 contract FragmentJobRouter is ReentrancyGuard {
     IERC20 public sagaDollar;
     
-    uint256 public constant PAYMENT_PER_TASK = 0.1 ether; // 0.1 SAGA Dollar
+    uint256 public constant PAYMENT_PER_TASK = 0.01 ether; // 0.01 SAGA Dollar
     uint256 public jobCounter;
     uint256 public taskCounter;
     
