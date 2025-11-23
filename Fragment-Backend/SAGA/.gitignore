@@ -1,0 +1,19 @@
+# Environment
+.env
+
+# Dependencies
+node_modules/
+package-lock.json
+
+# Hardhat
+cache/
+artifacts/
+typechain-types/
+
+# Deployment
+deployment.json
+job-*.json
+
+# Logs
+*.log
+

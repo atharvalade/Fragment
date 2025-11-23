@@ -1,0 +1,29 @@
+{
+  "name": "fragment-saga-contracts",
+  "version": "1.0.0",
+  "description": "SAGA Chainlet smart contracts for Fragment job routing",
+  "type": "module",
+  "scripts": {
+    "compile": "hardhat compile",
+    "deploy": "hardhat run scripts/deploy.js --network fragment",
+    "submit-job": "node scripts/submit-job.js",
+    "register-worker": "node scripts/register-worker.js",
+    "submit-result": "node scripts/submit-result.js",
+    "get-job": "node scripts/get-job.js",
+    "test": "hardhat test"
+  },
+  "keywords": ["saga", "fragment", "smart-contracts"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.22.0"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.0",
+    "@filoz/synapse-sdk": "^0.36.0",
+    "ethers": "^6.13.0",
+    "dotenv": "^16.4.5"
+  }
+}
+
