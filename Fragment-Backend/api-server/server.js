@@ -237,13 +237,8 @@ app.get('/api/datasets', async (req, res) => {
   try {
     const datasets = await getAllFilecoinDatasets();
     
-    // Format for frontend
-    const datasetList = datasets.map(d => ({
-      datasetId: d.datasetId,
-      pieces: d.pieces,
-      count: d.pieces.length,
-      jobIds: d.jobIds
-    }));
+    // Return as-is, already formatted
+    const datasetList = datasets;
     
     console.log(`✅ Returning ${datasetList.length} datasets`);
     
