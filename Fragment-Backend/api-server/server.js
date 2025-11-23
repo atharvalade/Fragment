@@ -77,26 +77,44 @@ const sagaDollar = new ethers.Contract(
 // FILECOIN SETUP
 // ============================================================================
 
-// Load existing Filecoin pieces
-const filecoinPiecesPath = path.join(__dirname, '../Filecoin/all-pieces.json');
-let allFilecoinPieces = [];
-if (fs.existsSync(filecoinPiecesPath)) {
-  allFilecoinPieces = JSON.parse(fs.readFileSync(filecoinPiecesPath, 'utf-8'));
-}
-
-// Initialize Filecoin provider and Synapse SDK (only when needed for uploads)
+// Initialize Filecoin provider and Synapse SDK
+const filecoinProvider = new ethers.JsonRpcProvider(RPC_URLS.calibration.http);
+const filecoinWallet = wallet.connect(filecoinProvider);
 let synapseInstance = null;
 
 async function getSynapse() {
   if (!synapseInstance) {
-    const filecoinProvider = new ethers.JsonRpcProvider(RPC_URLS.calibration.http);
-    const filecoinWallet = wallet.connect(filecoinProvider);
     synapseInstance = await Synapse.create({ 
       signer: filecoinWallet,
       withCDN: true 
     });
   }
   return synapseInstance;
+}
+
+/**
+ * Query all datasets from Filecoin by getting storage context history
+ */
+async function getAllFilecoinDatasets() {
+  try {
+    const synapse = await getSynapse();
+    
+    // Get all pieces uploaded by this wallet
+    // The Synapse SDK stores metadata with pieces
+    const storage = await synapse.storage.createContext({ withCDN: true });
+    
+    // Query all pieces from Filecoin
+    // This will get all pieces uploaded by our wallet
+    const pieces = await storage.listPieces?.() || [];
+    
+    console.log(`📊 Found ${pieces.length} pieces on Filecoin`);
+    
+    return pieces;
+  } catch (error) {
+    console.error('Error querying Filecoin datasets:', error);
+    // Return empty array if query fails
+    return [];
+  }
 }
 
 // ============================================================================
@@ -177,34 +195,46 @@ app.get('/health', (req, res) => {
 
 /**
  * GET /api/datasets
- * Get available Filecoin datasets
+ * Get available Filecoin datasets by querying directly from Filecoin
  */
-app.get('/api/datasets', (req, res) => {
+app.get('/api/datasets', async (req, res) => {
   try {
-    // Group pieces by dataset ID
+    console.log('📊 Querying Filecoin for all datasets...');
+    
+    const allPieces = await getAllFilecoinDatasets();
+    
+    // Group pieces by dataset ID from metadata
     const datasets = {};
-    allFilecoinPieces.forEach(piece => {
-      if (!datasets[piece.datasetId]) {
-        datasets[piece.datasetId] = {
-          datasetId: piece.datasetId,
+    
+    allPieces.forEach(piece => {
+      const datasetId = piece.metadata?.datasetId || piece.datasetId || 'unknown';
+      
+      if (!datasets[datasetId]) {
+        datasets[datasetId] = {
+          datasetId,
           pieces: [],
           count: 0
         };
       }
-      datasets[piece.datasetId].pieces.push(piece);
-      datasets[piece.datasetId].count++;
+      
+      datasets[datasetId].pieces.push({
+        datasetId,
+        cid: piece.cid || piece.pieceCid?.toString(),
+        cdnUrl: `https://${wallet.address}.calibration.filbeam.io/${piece.cid || piece.pieceCid?.toString()}`
+      });
+      datasets[datasetId].count++;
     });
     
     const datasetList = Object.values(datasets);
     
-    console.log(`📊 Available datasets: ${datasetList.length}`);
+    console.log(`✅ Found ${datasetList.length} datasets with ${allPieces.length} total pieces`);
     
     res.json({
       count: datasetList.length,
       datasets: datasetList
     });
   } catch (error) {
-    console.error('Error fetching datasets:', error);
+    console.error('Error fetching datasets from Filecoin:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -226,13 +256,18 @@ app.post('/api/jobs', async (req, res) => {
     // Option 1: Use existing Filecoin dataset
     if (datasetId) {
       console.log(`\n📋 Creating job from existing dataset ${datasetId}...`);
-      const datasetPieces = allFilecoinPieces.filter(p => p.datasetId === parseInt(datasetId));
+      
+      // Query Filecoin for this dataset's pieces
+      const allPieces = await getAllFilecoinDatasets();
+      const datasetPieces = allPieces.filter(p => 
+        (p.metadata?.datasetId || p.datasetId) === parseInt(datasetId)
+      );
       
       if (datasetPieces.length === 0) {
-        return res.status(404).json({ error: `Dataset ${datasetId} not found` });
+        return res.status(404).json({ error: `Dataset ${datasetId} not found on Filecoin` });
       }
       
-      pieceCids = datasetPieces.map(p => p.cid);
+      pieceCids = datasetPieces.map(p => p.cid || p.pieceCid?.toString());
       numFragments = pieceCids.length;
       useExistingDataset = true;
       
