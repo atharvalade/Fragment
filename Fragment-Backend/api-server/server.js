@@ -9,6 +9,9 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+// Import working Filecoin functions from download.js
+import { listDatasets, listAllPieces } from '../Filecoin/download.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -101,65 +104,42 @@ async function getSynapse() {
 }
 
 /**
- * Query all datasets directly from Filecoin using Synapse SDK
- * Same approach as download.js
+ * Query all datasets using the working download.js functions
  */
 async function getAllFilecoinDatasets() {
   try {
-    console.log('📊 Querying Filecoin for all datasets...');
+    console.log('📊 Querying Filecoin for all datasets using download.js...');
     
-    const synapse = await getSynapse();
+    // Use the working function from download.js
+    const allPieces = await listAllPieces();
     
-    // Get all datasets uploaded by this wallet
-    const datasets = await synapse.storage.findDataSets();
-    console.log(`   Found ${datasets.length} datasets`);
+    // Group by dataset ID
+    const datasetsMap = new Map();
     
-    // Import PDPServer to get pieces
-    const { PDPServer } = await import('@filoz/synapse-sdk');
-    
-    const allDatasets = [];
-    
-    for (const dataset of datasets) {
-      try {
-        // Get provider info and PDP server
-        const providerInfo = await synapse.getProviderInfo(dataset.providerId);
-        const serviceURL = providerInfo.products.PDP?.data.serviceURL;
-        
-        if (!serviceURL) {
-          console.warn(`   No PDP service URL for dataset ${dataset.id}`);
-          continue;
-        }
-        
-        const pdpServer = new PDPServer(null, serviceURL);
-        const datasetData = await pdpServer.getDataSet(dataset.pdpVerifierDataSetId);
-        const pieces = datasetData.pieces || [];
-        
-        const piecesWithLinks = pieces.map(piece => {
-          const v1Cid = piece.pieceCid.toV1().toString();
-          return {
-            cid: v1Cid,
-            size: piece.size,
-            metadata: piece.metadata,
-            cdnUrl: `https://${wallet.address}.calibration.filbeam.io/${v1Cid}`
-          };
+    allPieces.forEach(piece => {
+      const datasetId = piece.datasetId;
+      
+      if (!datasetsMap.has(datasetId)) {
+        datasetsMap.set(datasetId, {
+          datasetId,
+          pieces: [],
+          count: 0
         });
-        
-        allDatasets.push({
-          datasetId: dataset.id || dataset.pdpVerifierDataSetId,
-          pieces: piecesWithLinks,
-          withCDN: dataset.withCDN,
-          providerId: dataset.providerId
-        });
-        
-        console.log(`   ✅ Dataset ${dataset.id}: ${pieces.length} pieces`);
-        
-      } catch (error) {
-        console.warn(`   Failed to fetch pieces for dataset ${dataset.id}:`, error.message);
       }
-    }
+      
+      datasetsMap.get(datasetId).pieces.push({
+        cid: piece.cid,
+        cdnUrl: piece.cdnUrl,
+        size: piece.size,
+        metadata: piece.metadata
+      });
+      datasetsMap.get(datasetId).count++;
+    });
     
-    console.log(`   ✅ Total: ${allDatasets.length} datasets with pieces`);
-    return allDatasets;
+    const datasets = Array.from(datasetsMap.values());
+    console.log(`   ✅ Found ${datasets.length} datasets with ${allPieces.length} total pieces`);
+    
+    return datasets;
     
   } catch (error) {
     console.error('Error querying Filecoin datasets:', error);
