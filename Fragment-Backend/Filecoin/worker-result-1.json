@@ -1,0 +1,8 @@
+{
+  "taskId": 1,
+  "classification": "safe",
+  "confidence": 0.95,
+  "processedAt": "2025-11-23T08:26:18.088Z",
+  "workerId": "0x9f93EebD463d4B7c991986a082d974E77b5a02Dc",
+  "model": "gemma-3-2b"
+}
