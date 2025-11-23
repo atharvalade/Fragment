@@ -77,17 +77,25 @@ const sagaDollar = new ethers.Contract(
 // FILECOIN SETUP
 // ============================================================================
 
-// Initialize Filecoin provider and Synapse SDK
-const filecoinProvider = new ethers.JsonRpcProvider(RPC_URLS.calibration.http);
-const filecoinWallet = wallet.connect(filecoinProvider);
+// Initialize Filecoin with Synapse SDK
 let synapseInstance = null;
 
 async function getSynapse() {
   if (!synapseInstance) {
-    synapseInstance = await Synapse.create({ 
-      signer: filecoinWallet,
-      withCDN: true 
-    });
+    try {
+      const filecoinProvider = new ethers.JsonRpcProvider(RPC_URLS.calibration.http);
+      const filecoinWallet = wallet.connect(filecoinProvider);
+      
+      console.log('   Initializing Synapse SDK...');
+      synapseInstance = await Synapse.create({ 
+        signer: filecoinWallet,
+        withCDN: true 
+      });
+      console.log('   ✅ Synapse initialized');
+    } catch (error) {
+      console.error('   ❌ Synapse initialization failed:', error.message);
+      throw error;
+    }
   }
   return synapseInstance;
 }
