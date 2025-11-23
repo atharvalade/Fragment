@@ -310,7 +310,7 @@ struct WorkerWindow: View {
         }
     }
     
-    private func taskRow(_ task: Task) -> some View {
+    private func taskRow(_ task: WorkerTask) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {

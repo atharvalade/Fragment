@@ -21,34 +21,9 @@ struct JobsView: View {
                     // Earnings Card
                     earningsCard
                     
-                    // Available Fragments
-                    if !workerService.availableFragments.isEmpty {
-                        fragmentsSection(
-                            title: "Available Fragments",
-                            fragments: workerService.availableFragments,
-                            icon: "tray.full",
-                            color: .blue
-                        )
-                    }
-                    
-                    // Claimed Fragments
-                    if !workerService.claimedFragments.isEmpty {
-                        fragmentsSection(
-                            title: "Processing",
-                            fragments: workerService.claimedFragments,
-                            icon: "gearshape.2",
-                            color: .orange
-                        )
-                    }
-                    
-                    // Completed Fragments
-                    if !workerService.completedFragments.isEmpty {
-                        fragmentsSection(
-                            title: "Completed",
-                            fragments: workerService.completedFragments,
-                            icon: "checkmark.circle",
-                            color: .green
-                        )
+                    // Available Tasks
+                    if !workerService.availableTasks.isEmpty {
+                        availableTasksSection
                     }
                 }
                 .padding()
@@ -150,14 +125,14 @@ struct JobsView: View {
                 Text("Worker Status")
                     .font(.headline)
             } icon: {
-                Image(systemName: workerService.isWorking ? "checkmark.circle.fill" : "circle")
-                    .foregroundColor(workerService.isWorking ? .green : .gray)
+                Image(systemName: workerService.activeWorkers.isEmpty ? "circle" : "checkmark.circle.fill")
+                    .foregroundColor(workerService.activeWorkers.isEmpty ? .gray : .green)
             }
             
             HStack(spacing: 20) {
-                statItem(label: "Available", value: "\(workerService.availableFragments.count)", color: .blue)
-                statItem(label: "Processing", value: "\(workerService.claimedFragments.count)", color: .orange)
-                statItem(label: "Completed", value: "\(workerService.completedFragments.count)", color: .green)
+                statItem(label: "Total Workers", value: "\(workerService.workers.count)", color: .blue)
+                statItem(label: "Active", value: "\(workerService.activeWorkers.count)", color: .green)
+                statItem(label: "Available Tasks", value: "\(workerService.availableTasks.count)", color: .orange)
             }
             
             if let error = workerService.errorMessage {
@@ -189,15 +164,16 @@ struct JobsView: View {
     private var earningsCard: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Wallet B Balance")
+                Text("Total wSAGA Earned")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(String(format: "%.4f", workerService.usdcBalance))
+                    let totalEarned = workerService.workers.reduce(0.0) { $0 + $1.balance.wsaga }
+                    Text(String(format: "%.3f", totalEarned))
                         .font(.system(size: 32, weight: .bold, design: .rounded))
                         .foregroundColor(.green)
-                    Text("USDC")
+                    Text("wSAGA")
                         .font(.headline)
                         .foregroundColor(.secondary)
                 }
@@ -224,106 +200,62 @@ struct JobsView: View {
         )
     }
     
-    // MARK: - Fragments Section
+    // MARK: - Available Tasks Section
     
-    private func fragmentsSection(title: String, fragments: [TaskFragment], icon: String, color: Color) -> some View {
+    private var availableTasksSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label {
-                Text(title)
+                Text("Available Tasks")
                     .font(.headline)
             } icon: {
-                Image(systemName: icon)
-                    .foregroundColor(color)
+                Image(systemName: "tray.full")
+                    .foregroundColor(.orange)
             }
             
-            ForEach(fragments) { fragment in
-                fragmentRow(fragment, color: color)
+            ForEach(workerService.availableTasks) { task in
+                taskRow(task)
             }
         }
     }
     
-    private func fragmentRow(_ fragment: TaskFragment, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Fragment #\(fragment.fragmentIndex)")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
+    private func taskRow(_ task: WorkerTask) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Task #\(task.taskId)")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                    
+                    statusBadge(for: task.status)
+                }
                 
-                Spacer()
-                
-                // Status badge
-                statusBadge(for: fragment.status)
-                
-                Text("+\(fragment.bountyAmount, specifier: "%.2f") USDC")
+                Text("Job #\(task.jobId)")
                     .font(.caption)
-                    .fontWeight(.medium)
+                    .foregroundColor(.secondary)
+                
+                Text(task.pieceCid.prefix(20) + "...")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundColor(.blue)
+            }
+            
+            Spacer()
+            
+            VStack(alignment: .trailing, spacing: 4) {
+                Text("+\(task.bounty) wSAGA")
+                    .font(.caption)
+                    .fontWeight(.semibold)
                     .foregroundColor(.green)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.green.opacity(0.1))
-                    .cornerRadius(6)
-            }
-            
-            Text(fragment.data.text)
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .lineLimit(2)
-            
-            // Show Filecoin and Hyperlane info
-            if let blobId = fragment.blobId {
-                HStack(spacing: 4) {
-                    Image(systemName: "externaldrive.fill")
-                        .font(.system(size: 10))
-                        .foregroundColor(.blue)
-                    Text("Filecoin: \(String(blobId.prefix(16)))...")
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundColor(.blue)
-                }
-            }
-            
-            if let encryptionId = fragment.encryptionId {
-                HStack(spacing: 4) {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 10))
-                        .foregroundColor(.purple)
-                    Text("Hyperlane: \(String(encryptionId.prefix(16)))...")
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundColor(.purple)
-                }
-            }
-            
-            // Only show processing indicator for claimed fragments (not completed)
-            if fragment.status == "claimed" {
-                HStack(spacing: 4) {
-                    ProgressView()
-                        .scaleEffect(0.7)
-                    Text("Processing with Gemma...")
+                
+                if task.assignedWorker != "0x0000000000000000000000000000000000000000" {
+                    Text("Assigned")
                         .font(.caption2)
                         .foregroundColor(.orange)
-                }
-            }
-            
-            // Show result info for completed fragments
-            if fragment.status == "completed", let result = fragment.result {
-                if let resultBlobId = result.blobId {
-                    HStack(spacing: 4) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 10))
-                            .foregroundColor(.green)
-                        Text("Result: \(String(resultBlobId.prefix(16)))...")
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
-                            .foregroundColor(.green)
-                    }
                 }
             }
         }
         .padding()
         .background(Color(nsColor: .textBackgroundColor))
         .cornerRadius(10)
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(color.opacity(0.2), lineWidth: 1)
-        )
     }
     
     private func statusBadge(for status: String) -> some View {
@@ -339,13 +271,13 @@ struct JobsView: View {
     
     private func statusInfo(for status: String) -> (String, Color) {
         switch status {
-        case "pending":
+        case "Pending":
             return ("PENDING", .blue)
-        case "claimed":
-            return ("CLAIMED", .orange)
-        case "completed":
+        case "Assigned":
+            return ("ASSIGNED", .orange)
+        case "Completed":
             return ("DONE", .green)
-        case "failed":
+        case "Failed":
             return ("FAILED", .red)
         default:
             return (status.uppercased(), .gray)

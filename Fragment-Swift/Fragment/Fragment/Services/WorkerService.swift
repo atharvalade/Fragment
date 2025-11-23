@@ -20,7 +20,7 @@ struct WorkersResponse: Codable {
     let workers: [Worker]
 }
 
-struct Task: Identifiable, Codable {
+struct WorkerTask: Identifiable, Codable {
     var id: String { taskId }
     let taskId: String
     let jobId: String
@@ -31,7 +31,7 @@ struct Task: Identifiable, Codable {
 }
 
 struct AvailableTasksResponse: Codable {
-    let tasks: [Task]
+    let tasks: [WorkerTask]
 }
 
 struct TaskCompletionResponse: Codable {
@@ -58,8 +58,8 @@ struct TaskContentResponse: Codable {
 class WorkerService: ObservableObject {
     @Published var workers: [Worker] = []
     @Published var activeWorkers: Set<Int> = []
-    @Published var availableTasks: [Task] = []
-    @Published var currentTasks: [Int: Task] = [:] // workerId -> current task
+    @Published var availableTasks: [WorkerTask] = []
+    @Published var currentTasks: [Int: WorkerTask] = [:] // workerId -> current task
     @Published var statusMessage = "Ready to start workers"
     @Published var errorMessage: String? = nil
     
@@ -279,7 +279,7 @@ class WorkerService: ObservableObject {
     
     // MARK: - Task Processing with AI
     
-    private func processTask(workerId: Int, task: Task) {
+    private func processTask(workerId: Int, task: WorkerTask) {
         // Mark worker as processing
         DispatchQueue.main.async {
             self.processingWorkers.insert(workerId)
@@ -312,8 +312,8 @@ class WorkerService: ObservableObject {
             
             print("📥 Task \(task.taskId) content: \"\(inputText)\"")
             
-            // Run AI inference
-            Task {
+            // Run AI inference using async/await
+            Task.detached {
                 await self.runAIInference(workerId: workerId, taskId: task.taskId, inputText: inputText)
             }
             
@@ -349,7 +349,13 @@ class WorkerService: ObservableObject {
         
         // Wait for response to complete
         var attempts = 0
-        while await MainActor.run({ chatService.isGenerating }) && attempts < 30 {
+        while attempts < 30 {
+            let isGenerating = await MainActor.run {
+                chatService.isGenerating
+            }
+            if !isGenerating {
+                break
+            }
             try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
             attempts += 1
         }
