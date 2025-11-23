@@ -1,6 +1,7 @@
 working.md
 feedback.md
 .env
+
 # Dependencies
 node_modules/
 package-lock.json
@@ -13,4 +14,6 @@ upload-results.json
 # Logs
 *.log
 npm-debug.log*
+/llama.cpp
 
+gemma-3-4b-it-q4_0.gguf
