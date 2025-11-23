@@ -4,6 +4,7 @@ struct WorkerWindow: View {
     let workerId: String
     @StateObject private var workerService = WorkerService()
     @StateObject private var chatService = ChatService()
+    @State private var visibleWorkerCount: Int = 1 // Start with 1 worker visible
     
     var body: some View {
         VStack(spacing: 0) {
@@ -18,7 +19,12 @@ struct WorkerWindow: View {
                     // Status Overview Card
                     statusOverviewCard
                     
-                    // Workers List
+                    // Add Worker Button
+                    if visibleWorkerCount < workerService.workers.count {
+                        addWorkerButton
+                    }
+                    
+                    // Workers List (only show visible workers)
                     workersListSection
                     
                     // Available Tasks
@@ -97,7 +103,7 @@ struct WorkerWindow: View {
     
     private var statusOverviewCard: some View {
         HStack(spacing: 20) {
-            statBox(label: "Total Workers", value: "\(workerService.workers.count)", color: .blue)
+            statBox(label: "Visible Workers", value: "\(visibleWorkerCount)", color: .blue)
             statBox(label: "Active", value: "\(workerService.activeWorkers.count)", color: .green)
             statBox(label: "Available Tasks", value: "\(workerService.availableTasks.count)", color: .orange)
             statBox(label: "Processing", value: "\(workerService.currentTasks.count)", color: .purple)
@@ -105,6 +111,35 @@ struct WorkerWindow: View {
         .padding()
         .background(Color(nsColor: .textBackgroundColor))
         .cornerRadius(12)
+    }
+    
+    // MARK: - Add Worker Button
+    
+    private var addWorkerButton: some View {
+        Button(action: {
+            withAnimation {
+                visibleWorkerCount = min(visibleWorkerCount + 1, workerService.workers.count)
+            }
+        }) {
+            HStack {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 16))
+                Text("Add New Worker")
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(
+                LinearGradient(
+                    colors: [Color.blue, Color.purple],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .cornerRadius(12)
+        }
+        .buttonStyle(.plain)
     }
     
     private func statBox(label: String, value: String, color: Color) -> some View {
@@ -139,7 +174,8 @@ struct WorkerWindow: View {
                 GridItem(.flexible()),
                 GridItem(.flexible())
             ], spacing: 12) {
-                ForEach(workerService.workers) { worker in
+                // Only show visible workers
+                ForEach(workerService.workers.prefix(visibleWorkerCount)) { worker in
                     workerCard(worker)
                 }
             }

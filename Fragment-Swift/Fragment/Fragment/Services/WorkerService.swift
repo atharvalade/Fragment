@@ -45,6 +45,14 @@ struct TaskCompletionResponse: Codable {
     let newBalance: Double
 }
 
+struct TaskContentResponse: Codable {
+    let data: TaskData?
+    
+    struct TaskData: Codable {
+        let text: String
+    }
+}
+
 // MARK: - Worker Service
 
 class WorkerService: ObservableObject {
@@ -58,6 +66,7 @@ class WorkerService: ObservableObject {
     private let apiBaseURL = "http://localhost:3001/api"
     private var pollingTimer: Timer?
     private var chatService: ChatService?
+    private var processingWorkers: Set<Int> = [] // Track which workers are currently processing
     
     init() {
         // Load workers on init
@@ -174,6 +183,7 @@ class WorkerService: ObservableObject {
             DispatchQueue.main.async {
                 self.activeWorkers.remove(workerId)
                 self.currentTasks.removeValue(forKey: workerId)
+                self.processingWorkers.remove(workerId)
                 self.statusMessage = "Worker \(workerId) stopped"
                 print("✅ Worker \(workerId) stopped successfully")
                 
@@ -192,19 +202,26 @@ class WorkerService: ObservableObject {
     
     private func startPolling() {
         print("🔄 Starting task polling...")
-        pollingTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
-            self?.fetchAvailableTasks()
-            self?.fetchWorkers() // Also refresh worker balances
+        pollingTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.checkForTasks()
         }
         
         // Initial fetch
-        fetchAvailableTasks()
+        checkForTasks()
     }
     
     private func stopPolling() {
         print("⏹️ Stopping task polling")
         pollingTimer?.invalidate()
         pollingTimer = nil
+    }
+    
+    private func checkForTasks() {
+        // Refresh workers to update balances
+        fetchWorkers()
+        
+        // Check for tasks
+        fetchAvailableTasks()
     }
     
     private func fetchAvailableTasks() {
@@ -234,15 +251,23 @@ class WorkerService: ObservableObject {
                     
                     // Auto-assign tasks to idle workers
                     for workerId in self.activeWorkers {
-                        if self.currentTasks[workerId] == nil {
-                            // Worker is idle, find a task for them
-                            if let availableTask = tasksResponse.tasks.first(where: { task in
-                                task.status == "Assigned" && 
-                                task.assignedWorker == self.workers.first(where: { $0.id == workerId })?.address
-                            }) {
-                                print("🎯 Auto-assigning task \(availableTask.taskId) to worker \(workerId)")
-                                self.processTask(workerId: workerId, task: availableTask)
-                            }
+                        // Skip if worker is already processing a task
+                        if self.processingWorkers.contains(workerId) {
+                            continue
+                        }
+                        
+                        // Find worker's address
+                        guard let workerAddress = self.workers.first(where: { $0.id == workerId })?.address else {
+                            continue
+                        }
+                        
+                        // Check if worker has an assigned task
+                        if let assignedTask = tasksResponse.tasks.first(where: { task in
+                            task.status == "Assigned" &&
+                            task.assignedWorker.lowercased() == workerAddress.lowercased()
+                        }) {
+                            print("🎯 Found task \(assignedTask.taskId) for worker \(workerId)")
+                            self.processTask(workerId: workerId, task: assignedTask)
                         }
                     }
                 }
@@ -252,32 +277,109 @@ class WorkerService: ObservableObject {
         }.resume()
     }
     
-    // MARK: - Task Processing
+    // MARK: - Task Processing with AI
     
     private func processTask(workerId: Int, task: Task) {
+        // Mark worker as processing
         DispatchQueue.main.async {
+            self.processingWorkers.insert(workerId)
             self.currentTasks[workerId] = task
             self.statusMessage = "Worker \(workerId) processing task \(task.taskId)"
         }
         
         print("⚙️  Worker \(workerId) processing task \(task.taskId)...")
         
-        // Simulate AI processing (1 second)
-        DispatchQueue.global().asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            guard let self = self else { return }
-            
-            // Complete the task
-            self.completeTask(workerId: workerId, taskId: task.taskId)
-        }
-    }
-    
-    private func completeTask(workerId: Int, taskId: String) {
-        guard let url = URL(string: "\(apiBaseURL)/workers/\(workerId)/complete-task") else {
-            print("❌ Invalid URL for completing task")
+        // Download task content from Filecoin CDN
+        let filecoinURL = "https://0x9f93EebD463d4B7c991986a082d974E77b5a02Dc.calibration.filbeam.io/\(task.pieceCid)"
+        guard let url = URL(string: filecoinURL) else {
+            print("❌ Invalid Filecoin URL: \(filecoinURL)")
+            completeProcessing(workerId: workerId)
             return
         }
         
-        print("📤 Worker \(workerId) completing task \(taskId)...")
+        print("📥 Downloading from Filecoin: \(filecoinURL)")
+        
+        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+            guard let self = self else { return }
+            
+            var inputText = "Unknown text"
+            
+            if let data = data,
+               let content = try? JSONDecoder().decode(TaskContentResponse.self, from: data),
+               let text = content.data?.text {
+                inputText = text
+            }
+            
+            print("📥 Task \(task.taskId) content: \"\(inputText)\"")
+            
+            // Run AI inference
+            Task {
+                await self.runAIInference(workerId: workerId, taskId: task.taskId, inputText: inputText)
+            }
+            
+        }.resume()
+    }
+    
+    private func runAIInference(workerId: Int, taskId: String, inputText: String) async {
+        guard let chatService = self.chatService else {
+            print("❌ Chat service not available")
+            completeProcessing(workerId: workerId)
+            return
+        }
+        
+        print("🤖 Worker \(workerId) running AI inference on: \"\(inputText)\"")
+        
+        // Clear previous messages
+        await MainActor.run {
+            chatService.clearChat()
+        }
+        
+        // Create classification prompt
+        let prompt = """
+        Classify this text as SAFE or UNSAFE based on hate speech, violence, or harmful content.
+        Respond with ONLY the word "SAFE" or "UNSAFE" - nothing else.
+        
+        Text: "\(inputText)"
+        
+        Classification:
+        """
+        
+        // Send to Gemma model
+        await chatService.sendMessage(prompt)
+        
+        // Wait for response to complete
+        var attempts = 0
+        while await MainActor.run({ chatService.isGenerating }) && attempts < 30 {
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
+            attempts += 1
+        }
+        
+        // Get classification from response
+        let response = await MainActor.run {
+            chatService.messages.last?.content ?? "SAFE"
+        }
+        
+        let classification: String
+        if response.uppercased().contains("UNSAFE") {
+            classification = "unsafe"
+        } else {
+            classification = "safe"
+        }
+        
+        print("📊 AI Classification: \(classification)")
+        
+        // Complete the task on blockchain
+        await completeTask(workerId: workerId, taskId: taskId, classification: classification)
+    }
+    
+    private func completeTask(workerId: Int, taskId: String, classification: String) async {
+        guard let url = URL(string: "\(apiBaseURL)/workers/\(workerId)/complete-task") else {
+            print("❌ Invalid URL for completing task")
+            completeProcessing(workerId: workerId)
+            return
+        }
+        
+        print("📤 Worker \(workerId) submitting result for task \(taskId): \(classification)")
         
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -286,47 +388,40 @@ class WorkerService: ObservableObject {
         let body: [String: Any] = ["taskId": taskId]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            guard let self = self else { return }
+        do {
+            let (data, _) = try await URLSession.shared.data(for: request)
+            let response = try JSONDecoder().decode(TaskCompletionResponse.self, from: data)
             
-            if let error = error {
-                print("❌ Error completing task: \(error.localizedDescription)")
-                DispatchQueue.main.async {
-                    self.errorMessage = "Failed to complete task: \(error.localizedDescription)"
-                    self.currentTasks.removeValue(forKey: workerId)
-                }
-                return
-            }
+            print("✅ Task \(taskId) completed! Bounty: \(response.bountyEarned) wSAGA")
+            print("   Worker \(workerId) balance: \(response.newBalance) wSAGA")
+            print("   TX: \(response.txHash)")
             
-            guard let data = data else {
-                print("❌ No data received when completing task")
-                return
-            }
-            
-            do {
-                let response = try JSONDecoder().decode(TaskCompletionResponse.self, from: data)
+            await MainActor.run {
+                self.statusMessage = "Worker \(workerId) earned \(response.bountyEarned) wSAGA!"
+                self.completeProcessing(workerId: workerId)
                 
-                print("✅ Task \(taskId) completed! Bounty: \(response.bountyEarned) wSAGA")
-                print("   TX: \(response.txHash)")
-                print("   New balance: \(response.newBalance) wSAGA")
+                // Refresh workers to update balances
+                self.fetchWorkers()
                 
-                DispatchQueue.main.async {
-                    self.currentTasks.removeValue(forKey: workerId)
-                    self.statusMessage = "Worker \(workerId) earned \(response.bountyEarned) wSAGA!"
-                    
-                    // Refresh workers to update balances
-                    self.fetchWorkers()
-                    
-                    // Fetch available tasks again
+                // Immediately check for more tasks
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     self.fetchAvailableTasks()
                 }
-            } catch {
-                print("❌ Error decoding completion response: \(error)")
-                DispatchQueue.main.async {
-                    self.currentTasks.removeValue(forKey: workerId)
-                }
             }
-        }.resume()
+        } catch {
+            print("❌ Error completing task: \(error.localizedDescription)")
+            await MainActor.run {
+                self.errorMessage = "Failed to complete task: \(error.localizedDescription)"
+                self.completeProcessing(workerId: workerId)
+            }
+        }
+    }
+    
+    private func completeProcessing(workerId: Int) {
+        DispatchQueue.main.async {
+            self.processingWorkers.remove(workerId)
+            self.currentTasks.removeValue(forKey: workerId)
+        }
     }
     
     deinit {
