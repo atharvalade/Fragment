@@ -24,21 +24,10 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const upload = multer({ storage: multer.memoryStorage() });
 
-// CORS configuration
-const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [
-  'http://localhost:3000',
-  'http://localhost:3001'
-];
-
+// CORS configuration - allow everything
 app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true
+  origin: '*',
+  credentials: false
 }));
 
 app.use(express.json());
@@ -58,9 +47,14 @@ const jobRouterABI = JSON.parse(
   fs.readFileSync(path.join(__dirname, '../SAGA/artifacts/contracts/FragmentJobRouter.sol/FragmentJobRouter.json'), 'utf-8')
 ).abi;
 
-const sagaDollarABI = JSON.parse(
-  fs.readFileSync(path.join(__dirname, '../SAGA/artifacts/contracts/MockSAGADollar.sol/MockSAGADollar.json'), 'utf-8')
-).abi;
+// Standard ERC20 ABI for wSAGA (no mint function - it's a bridged token!)
+const wSagaABI = [
+  'function balanceOf(address) view returns (uint256)',
+  'function transfer(address to, uint256 amount) returns (bool)',
+  'function approve(address spender, uint256 amount) returns (bool)',
+  'function allowance(address owner, address spender) view returns (uint256)',
+  'function transferFrom(address from, address to, uint256 amount) returns (bool)'
+];
 
 // Initialize contracts
 const jobRouter = new ethers.Contract(
@@ -71,7 +65,7 @@ const jobRouter = new ethers.Contract(
 
 const sagaDollar = new ethers.Contract(
   process.env.SAGA_DOLLAR_ADDRESS,
-  sagaDollarABI,
+  wSagaABI,
   wallet
 );
 
@@ -237,8 +231,8 @@ app.get('/api/datasets', async (req, res) => {
   try {
     const datasets = await getAllFilecoinDatasets();
     
-    // Return as-is, already formatted
-    const datasetList = datasets;
+    // Sort by datasetId in descending order (newest first)
+    const datasetList = datasets.sort((a, b) => b.datasetId - a.datasetId);
     
     console.log(`✅ Returning ${datasetList.length} datasets`);
     
@@ -314,19 +308,20 @@ app.post('/api/jobs', async (req, res) => {
       return res.status(400).json({ error: 'Either datasetId or data array required' });
     }
     
-    // Step 2: Calculate total payment and ensure balance
+    // Step 2: Calculate total payment and check balance
     const totalPayment = ethers.parseEther((numFragments * 0.1).toString());
     
-    console.log(`\n💰 Total payment needed: ${ethers.formatEther(totalPayment)} SAGA Dollar`);
+    console.log(`\n💰 Total payment needed: ${ethers.formatEther(totalPayment)} wSAGA`);
     
     const balance = await sagaDollar.balanceOf(wallet.address);
-    console.log(`   Current balance: ${ethers.formatEther(balance)} SAGA Dollar`);
+    console.log(`   Current balance: ${ethers.formatEther(balance)} wSAGA`);
     
     if (balance < totalPayment) {
-      console.log(`   ⚠️  Minting additional tokens...`);
-      const mintTx = await sagaDollar.mint(wallet.address, totalPayment);
-      await mintTx.wait();
-      console.log(`   ✅ Minted tokens`);
+      return res.status(400).json({ 
+        error: 'Insufficient wSAGA balance',
+        required: ethers.formatEther(totalPayment),
+        current: ethers.formatEther(balance)
+      });
     }
     
     // Step 3: Approve JobRouter to spend SAGA Dollar
@@ -630,24 +625,39 @@ app.post('/api/fragments/:fragmentId/complete', async (req, res) => {
  */
 app.get('/api/wallets', async (req, res) => {
   try {
-    const sagaDollarBalance = await sagaDollar.balanceOf(wallet.address);
-    const sagaBalance = await sagaProvider.getBalance(wallet.address);
+    // Exact same approach that worked in terminal test
+    const walletAddress = '0x9f93EebD463d4B7c991986a082d974E77b5a02Dc';
+    const wSAGA_ADDRESS = '0xE71d2ea77309Ee3CaC224B8A5537fEcD7f217C9E';
+    
+    // Get native balance
+    const nativeBalance = await sagaProvider.getBalance(walletAddress);
+    
+    // Get wSAGA balance
+    const wSAGA = new ethers.Contract(
+      wSAGA_ADDRESS,
+      ['function balanceOf(address) view returns (uint256)'],
+      sagaProvider  // Use provider, not wallet
+    );
+    const wSagaBalance = await wSAGA.balanceOf(walletAddress);
+    
+    const nativeMENT = parseFloat(ethers.formatEther(nativeBalance));
+    const wSaga = parseFloat(ethers.formatEther(wSagaBalance));
     
     res.json({
       walletA: {
-        address: wallet.address,
-        saga: parseFloat(ethers.formatEther(sagaBalance)),
-        usdc: parseFloat(ethers.formatEther(sagaDollarBalance))
+        address: walletAddress,
+        saga: nativeMENT,
+        usdc: wSaga
       },
       walletB: {
-        address: wallet.address,
-        saga: parseFloat(ethers.formatEther(sagaBalance)),
-        usdc: parseFloat(ethers.formatEther(sagaDollarBalance))
+        address: walletAddress,
+        saga: nativeMENT,
+        usdc: wSaga
       },
       walletC: {
-        address: wallet.address,
-        saga: parseFloat(ethers.formatEther(sagaBalance)),
-        usdc: parseFloat(ethers.formatEther(sagaDollarBalance))
+        address: walletAddress,
+        saga: nativeMENT,
+        usdc: wSaga
       }
     });
     

@@ -78,6 +78,7 @@ export default function SubmitJob() {
 
   // Dataset selection
   const [availableDatasets, setAvailableDatasets] = useState<Dataset[]>([]);
+  const [loadingDatasets, setLoadingDatasets] = useState(true);
   const [selectedDatasetId, setSelectedDatasetId] = useState<number | null>(null);
   const [useExistingDataset, setUseExistingDataset] = useState(true);
   const [datasetPreviews, setDatasetPreviews] = useState<Map<number, DatasetPreview>>(new Map());
@@ -90,6 +91,7 @@ export default function SubmitJob() {
   
   // Load available datasets
   useEffect(() => {
+    setLoadingDatasets(true);
     fetch(getApiUrl('/api/datasets'))
       .then(res => res.json())
       .then(data => {
@@ -98,7 +100,8 @@ export default function SubmitJob() {
           setSelectedDatasetId(data.datasets[0].datasetId);
         }
       })
-      .catch(console.error);
+      .catch(console.error)
+      .finally(() => setLoadingDatasets(false));
   }, []);
 
   // Load dataset preview
@@ -794,7 +797,14 @@ export default function SubmitJob() {
                       <Package className="w-5 h-5 mx-auto mb-1" />
                       <div className="text-sm font-medium">Use Existing Dataset</div>
                       <div className="text-xs text-muted-foreground mt-1">
-                        {availableDatasets.length} datasets available
+                        {loadingDatasets ? (
+                          <span className="flex items-center justify-center gap-1">
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            Loading...
+                          </span>
+                        ) : (
+                          `${availableDatasets.length} datasets available`
+                        )}
                       </div>
                     </button>
                     <button
@@ -825,7 +835,15 @@ export default function SubmitJob() {
                       </p>
                     </div>
 
-                    {availableDatasets.length === 0 ? (
+                    {loadingDatasets ? (
+                      <div className="p-8 text-center border border-dashed rounded-lg">
+                        <Loader2 className="w-12 h-12 mx-auto mb-3 text-muted-foreground animate-spin" />
+                        <p className="text-sm text-muted-foreground">Loading datasets from Filecoin...</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Querying decentralized storage
+                        </p>
+                      </div>
+                    ) : availableDatasets.length === 0 ? (
                       <div className="p-8 text-center border border-dashed rounded-lg">
                         <Package className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
                         <p className="text-sm text-muted-foreground">No datasets available</p>
