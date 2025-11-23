@@ -103,51 +103,30 @@ async function getSynapse() {
 }
 
 /**
- * Query all datasets - exact same logic as download.js listAllPieces()
+ * Query all datasets by running the working download.js script
  */
 async function getAllFilecoinDatasets() {
   try {
-    console.log('📊 Querying Filecoin for all datasets...');
+    console.log('📊 Querying Filecoin using download.js script...');
     
-    const synapse = await getSynapse();
-    const datasets = await synapse.storage.findDataSets();
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const execAsync = promisify(exec);
     
-    console.log(`   Found ${datasets.length} datasets`);
+    // Run the working download.js script
+    const filecoinDir = path.join(__dirname, '../Filecoin');
+    const { stdout, stderr } = await execAsync('node download.js all', {
+      cwd: filecoinDir,
+      timeout: 60000 // 60 second timeout
+    });
     
-    const { PDPServer } = await import('@filoz/synapse-sdk');
-    const allPieces = [];
-    
-    for (const dataset of datasets) {
-      try {
-        // Get provider info and PDP server
-        const providerInfo = await synapse.getProviderInfo(dataset.providerId);
-        const serviceURL = providerInfo.products.PDP?.data.serviceURL;
-        
-        if (!serviceURL) {
-          console.warn(`   No PDP service URL for dataset ${dataset.id}`);
-          continue;
-        }
-        
-        const pdpServer = new PDPServer(null, serviceURL);
-        const datasetData = await pdpServer.getDataSet(dataset.pdpVerifierDataSetId);
-        const pieces = datasetData.pieces || [];
-        
-        console.log(`   Dataset ${dataset.id}: ${pieces.length} pieces`);
-        
-        pieces.forEach(piece => {
-          const v1Cid = piece.pieceCid.toV1().toString();
-          allPieces.push({
-            datasetId: dataset.id,
-            cid: v1Cid,
-            size: piece.size,
-            cdnUrl: `https://${wallet.address}.calibration.filbeam.io/${v1Cid}`,
-            metadata: piece.metadata
-          });
-        });
-      } catch (error) {
-        console.warn(`   Failed to fetch pieces for dataset ${dataset.id}:`, error.message);
-      }
+    if (stderr && !stderr.includes('warn')) {
+      console.error('   Script stderr:', stderr);
     }
+    
+    // Read the generated all-pieces.json file
+    const piecesPath = path.join(filecoinDir, 'all-pieces.json');
+    const allPieces = JSON.parse(fs.readFileSync(piecesPath, 'utf-8'));
     
     // Group by dataset ID
     const datasetsMap = new Map();
@@ -164,12 +143,12 @@ async function getAllFilecoinDatasets() {
     });
     
     const result = Array.from(datasetsMap.values());
-    console.log(`   ✅ Total: ${result.length} datasets with ${allPieces.length} pieces`);
+    console.log(`   ✅ Found ${result.length} datasets with ${allPieces.length} total pieces`);
     
     return result;
     
   } catch (error) {
-    console.error('Error querying Filecoin datasets:', error);
+    console.error('Error querying Filecoin datasets:', error.message);
     return [];
   }
 }
