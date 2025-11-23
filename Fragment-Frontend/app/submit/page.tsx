@@ -52,6 +52,16 @@ interface JobStatus {
   fragments: Fragment[];
 }
 
+interface Dataset {
+  datasetId: number;
+  count: number;
+  pieces: Array<{
+    datasetId: number;
+    cid: string;
+    cdnUrl: string;
+  }>;
+}
+
 export default function SubmitJob() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -60,10 +70,28 @@ export default function SubmitJob() {
   const [submissionLogs, setSubmissionLogs] = useState<SubmissionLog[]>([]);
   const [creatingFragments, setCreatingFragments] = useState<CreatingFragment[]>([]);
 
+  // Dataset selection
+  const [availableDatasets, setAvailableDatasets] = useState<Dataset[]>([]);
+  const [selectedDatasetId, setSelectedDatasetId] = useState<number | null>(null);
+  const [useExistingDataset, setUseExistingDataset] = useState(true);
+
   // AI Form State
   const [aiText, setAiText] = useState("");
   const [aiFile, setAiFile] = useState<File | null>(null);
   const [aiPrompt, setAiPrompt] = useState("Classify the following text as 'safe' or 'unsafe' based on harmful content (hate speech, violence, sexual content, etc.). Respond with only 'safe' or 'unsafe'.");
+  
+  // Load available datasets
+  useEffect(() => {
+    fetch(getApiUrl('/api/datasets'))
+      .then(res => res.json())
+      .then(data => {
+        setAvailableDatasets(data.datasets || []);
+        if (data.datasets && data.datasets.length > 0) {
+          setSelectedDatasetId(data.datasets[0].datasetId);
+        }
+      })
+      .catch(console.error);
+  }, []);
 
   const addLog = (type: SubmissionLog['type'], message: string) => {
     setSubmissionLogs(prev => [...prev, { type, message, timestamp: Date.now() }]);
@@ -96,7 +124,13 @@ export default function SubmitJob() {
   const handleAISubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!aiText && !aiFile) {
+    // Validate based on selection mode
+    if (useExistingDataset && !selectedDatasetId) {
+      alert("Please select a dataset.");
+      return;
+    }
+    
+    if (!useExistingDataset && !aiText && !aiFile) {
       alert("Please enter text or upload a file.");
       return;
     }
@@ -106,59 +140,64 @@ export default function SubmitJob() {
     setCreatingFragments([]);
     addLog('info', '🚀 Starting job submission...');
 
-    let dataToSend: any[] = [];
-    if (aiFile) {
-      addLog('info', `📁 Reading file: ${aiFile.name}`);
-      const fileContent = await aiFile.text();
-      const lines = fileContent.split('\n').slice(1).filter(line => line.trim() !== '');
-      dataToSend = lines.map((line, i) => ({
-        text: line.replace(/^["']|["']$/g, '').trim()
-      }));
-      addLog('success', `✅ Loaded ${dataToSend.length} sentences from CSV`);
-    } else if (aiText) {
-      dataToSend = [{ text: aiText }];
-      addLog('info', `📝 Processing single text input`);
-    }
+    let requestBody: any = {
+      jobType: 'gemma-text-classification',
+      bountyPerFragment: 0.01,
+      prompt: aiPrompt
+    };
 
-    // Initialize fragment creation display
-    const initialFragments: CreatingFragment[] = dataToSend.map((item, i) => ({
-      index: i,
-      text: item.text,
-      status: 'creating'
-    }));
-    setCreatingFragments(initialFragments);
+    // Option 1: Use existing Filecoin dataset
+    if (useExistingDataset && selectedDatasetId) {
+      addLog('info', `📦 Using existing Filecoin dataset ${selectedDatasetId}`);
+      requestBody.datasetId = selectedDatasetId;
+      
+      const dataset = availableDatasets.find(d => d.datasetId === selectedDatasetId);
+      if (dataset) {
+        addLog('success', `✅ Dataset has ${dataset.count} fragments`);
+        addLog('info', `💰 Total bounty: ${(dataset.count * 0.01).toFixed(2)} wSAGA`);
+      }
+    }
+    // Option 2: Upload new data
+    else {
+      let dataToSend: any[] = [];
+      if (aiFile) {
+        addLog('info', `📁 Reading file: ${aiFile.name}`);
+        const fileContent = await aiFile.text();
+        const lines = fileContent.split('\n').slice(1).filter(line => line.trim() !== '');
+        dataToSend = lines.map((line, i) => ({
+          text: line.replace(/^["']|["']$/g, '').trim()
+        }));
+        addLog('success', `✅ Loaded ${dataToSend.length} sentences from CSV`);
+      } else if (aiText) {
+        dataToSend = [{ text: aiText }];
+        addLog('info', `📝 Processing single text input`);
+      }
+      
+      requestBody.data = dataToSend;
+
+      // Only show fragment creation UI if uploading new data
+      if (!useExistingDataset && requestBody.data) {
+        const initialFragments: CreatingFragment[] = requestBody.data.map((item: any, i: number) => ({
+          index: i,
+          text: item.text,
+          status: 'creating'
+        }));
+        setCreatingFragments(initialFragments);
+        
+        addLog('info', `📦 Creating ${requestBody.data.length} fragments...`);
+      }
+    }
 
     try {
       addLog('info', `🔗 Connecting to Fragment backend...`);
-      addLog('info', `📦 Creating ${dataToSend.length} fragments...`);
-      addLog('info', `💰 Total bounty: ${(dataToSend.length * 0.01).toFixed(2)} USDC`);
-
-      // Simulate fragment creation progress
-      for (let i = 0; i < dataToSend.length; i++) {
-        await new Promise(resolve => setTimeout(resolve, 200));
-        setCreatingFragments(prev => prev.map((f, idx) => 
-          idx === i ? { ...f, status: 'uploading' } : f
-        ));
-        addLog('info', `📤 Uploading fragment #${i} to Filecoin...`);
-        
-        await new Promise(resolve => setTimeout(resolve, 300));
-        setCreatingFragments(prev => prev.map((f, idx) => 
-          idx === i ? { ...f, status: 'encrypting' } : f
-        ));
-        addLog('info', `🔐 Encrypting fragment #${i} with Hyperlane...`);
-      }
+      addLog('info', `⛓️  Submitting to blockchain with Filecoin CIDs...`);
 
       const response = await fetch(getApiUrl('/api/jobs'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          data: dataToSend,
-          jobType: 'gemma-text-classification',
-          bountyPerFragment: 0.01,
-          prompt: aiPrompt,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -168,32 +207,10 @@ export default function SubmitJob() {
 
       const result = await response.json();
       
-      // Fetch the full job details to get Filecoin URLs
-      const jobDetailsResponse = await fetch(getApiUrl(`/api/jobs/${result.jobId}`));
-      const jobDetails = await jobDetailsResponse.json();
-      
-      // Update fragments with real Filecoin data one by one
-      for (let i = 0; i < jobDetails.fragments.length; i++) {
-        const fragment = jobDetails.fragments[i];
-        await new Promise(resolve => setTimeout(resolve, 150));
-        
-        setCreatingFragments(prev => prev.map((f, idx) => 
-          idx === i ? { 
-            ...f, 
-            status: 'done',
-            filecoinUrl: fragment.filecoinUrl,
-            blobId: fragment.blobId,
-            encryptionId: fragment.encryptionId
-          } : f
-        ));
-        
-        addLog('success', `✅ Fragment #${i}: ${fragment.blobId?.substring(0, 16)}...`);
-      }
-      
-      addLog('success', `✅ Job created: ${result.jobId.substring(0, 8)}...`);
-      addLog('success', `📊 ${result.totalFragments} fragments ready`);
-      addLog('success', `🌐 All fragments uploaded to Filecoin`);
-      addLog('success', `🔐 All fragments encrypted with Hyperlane`);
+      addLog('success', `✅ Job created: ${result.jobId}`);
+      addLog('success', `📊 ${result.totalFragments} fragments on blockchain`);
+      addLog('success', `🔗 Transaction: ${result.transactionHash.substring(0, 16)}...`);
+      addLog('info', `🌐 Explorer: ${result.explorerUrl}`);
       addLog('info', `⚡ Job now available to Mac workers...`);
 
       setJobId(result.jobId);
@@ -719,41 +736,112 @@ export default function SubmitJob() {
 
             <TabsContent value="ai" className="p-6 space-y-6">
               <form onSubmit={handleAISubmit} className="space-y-6">
-                <div>
-                  <Label htmlFor="ai-text">Text content</Label>
-                  <Textarea
-                    id="ai-text"
-                    placeholder="Enter text to analyze for safety..."
-                    className="mt-2 min-h-[120px] resize-none"
-                    value={aiText}
-                    onChange={(e) => setAiText(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground mt-2">
-                    AI will analyze this text for harmful content
-                  </p>
-                </div>
-
-                <div>
-                  <Label htmlFor="ai-file">Upload CSV file (optional)</Label>
-                  <div className="mt-2 relative border-2 border-dashed rounded-lg p-6 hover:border-muted-foreground/50 transition-colors">
-                    <input
-                      id="ai-file"
-                      type="file"
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                      accept=".csv"
-                      onChange={(e) => setAiFile(e.target.files?.[0] || null)}
-                    />
-                    <div className="text-center">
-                      <Upload className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-                      <p className="text-sm">
-                        {aiFile ? aiFile.name : "Click to upload or drag and drop"}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        CSV file with a text column (one sentence per line)
-                      </p>
-                    </div>
+                {/* Dataset Selection Toggle */}
+                <div className="bg-muted/30 rounded-lg p-4 border border-white/10">
+                  <Label className="text-base font-semibold mb-3 block">Data Source</Label>
+                  <div className="flex gap-4">
+                    <button
+                      type="button"
+                      onClick={() => setUseExistingDataset(true)}
+                      className={`flex-1 px-4 py-3 rounded-lg border-2 transition-all ${
+                        useExistingDataset 
+                          ? 'border-primary bg-primary/10 text-primary' 
+                          : 'border-white/10 hover:border-white/20'
+                      }`}
+                    >
+                      <Package className="w-5 h-5 mx-auto mb-1" />
+                      <div className="text-sm font-medium">Use Existing Dataset</div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {availableDatasets.length} datasets available
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setUseExistingDataset(false)}
+                      className={`flex-1 px-4 py-3 rounded-lg border-2 transition-all ${
+                        !useExistingDataset 
+                          ? 'border-primary bg-primary/10 text-primary' 
+                          : 'border-white/10 hover:border-white/20'
+                      }`}
+                    >
+                      <Upload className="w-5 h-5 mx-auto mb-1" />
+                      <div className="text-sm font-medium">Upload New Data</div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        CSV or text input
+                      </div>
+                    </button>
                   </div>
                 </div>
+
+                {/* Option 1: Select Existing Dataset */}
+                {useExistingDataset && (
+                  <div>
+                    <Label htmlFor="dataset-select">Select Filecoin Dataset</Label>
+                    <select
+                      id="dataset-select"
+                      value={selectedDatasetId || ''}
+                      onChange={(e) => setSelectedDatasetId(parseInt(e.target.value))}
+                      className="mt-2 w-full px-4 py-3 rounded-lg border border-white/10 bg-background"
+                    >
+                      {availableDatasets.map(dataset => (
+                        <option key={dataset.datasetId} value={dataset.datasetId}>
+                          Dataset #{dataset.datasetId} - {dataset.count} fragments
+                        </option>
+                      ))}
+                    </select>
+                    {selectedDatasetId && (
+                      <div className="mt-3 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                        <div className="flex items-center gap-2 text-sm text-blue-400">
+                          <Database className="w-4 h-4" />
+                          <span>
+                            This dataset is already on Filecoin with {availableDatasets.find(d => d.datasetId === selectedDatasetId)?.count} fragments
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Option 2: Upload New Data */}
+                {!useExistingDataset && (
+                  <>
+                    <div>
+                      <Label htmlFor="ai-text">Text content</Label>
+                      <Textarea
+                        id="ai-text"
+                        placeholder="Enter text to analyze for safety..."
+                        className="mt-2 min-h-[120px] resize-none"
+                        value={aiText}
+                        onChange={(e) => setAiText(e.target.value)}
+                      />
+                      <p className="text-xs text-muted-foreground mt-2">
+                        AI will analyze this text for harmful content
+                      </p>
+                    </div>
+
+                    <div>
+                      <Label htmlFor="ai-file">Upload CSV file (optional)</Label>
+                      <div className="mt-2 relative border-2 border-dashed rounded-lg p-6 hover:border-muted-foreground/50 transition-colors">
+                        <input
+                          id="ai-file"
+                          type="file"
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                          accept=".csv"
+                          onChange={(e) => setAiFile(e.target.files?.[0] || null)}
+                        />
+                        <div className="text-center">
+                          <Upload className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+                          <p className="text-sm">
+                            {aiFile ? aiFile.name : "Click to upload or drag and drop"}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            CSV file with a text column (one sentence per line)
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
 
                 <div>
                   <Label htmlFor="ai-prompt">AI Prompt</Label>
@@ -784,15 +872,18 @@ export default function SubmitJob() {
                 <Button
                   type="submit"
                   className="w-full"
-                  disabled={isSubmitting || (!aiText && !aiFile)}
+                  disabled={isSubmitting || (useExistingDataset ? !selectedDatasetId : (!aiText && !aiFile))}
                 >
                   {isSubmitting ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Creating fragments...
+                      Submitting to blockchain...
                     </>
                   ) : (
-                    "Submit job"
+                    <>
+                      <Zap className="w-4 h-4 mr-2" />
+                      Submit Job with {useExistingDataset ? 'Existing Dataset' : 'New Data'}
+                    </>
                   )}
                 </Button>
               </form>

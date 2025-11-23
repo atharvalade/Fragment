@@ -77,13 +77,20 @@ const sagaDollar = new ethers.Contract(
 // FILECOIN SETUP
 // ============================================================================
 
-// Initialize Filecoin provider and Synapse SDK
-const filecoinProvider = new ethers.JsonRpcProvider(RPC_URLS.calibration.http);
-const filecoinWallet = wallet.connect(filecoinProvider);
+// Load existing Filecoin pieces
+const filecoinPiecesPath = path.join(__dirname, '../Filecoin/all-pieces.json');
+let allFilecoinPieces = [];
+if (fs.existsSync(filecoinPiecesPath)) {
+  allFilecoinPieces = JSON.parse(fs.readFileSync(filecoinPiecesPath, 'utf-8'));
+}
+
+// Initialize Filecoin provider and Synapse SDK (only when needed for uploads)
 let synapseInstance = null;
 
 async function getSynapse() {
   if (!synapseInstance) {
+    const filecoinProvider = new ethers.JsonRpcProvider(RPC_URLS.calibration.http);
+    const filecoinWallet = wallet.connect(filecoinProvider);
     synapseInstance = await Synapse.create({ 
       signer: filecoinWallet,
       withCDN: true 
@@ -169,51 +176,100 @@ app.get('/health', (req, res) => {
 });
 
 /**
+ * GET /api/datasets
+ * Get available Filecoin datasets
+ */
+app.get('/api/datasets', (req, res) => {
+  try {
+    // Group pieces by dataset ID
+    const datasets = {};
+    allFilecoinPieces.forEach(piece => {
+      if (!datasets[piece.datasetId]) {
+        datasets[piece.datasetId] = {
+          datasetId: piece.datasetId,
+          pieces: [],
+          count: 0
+        };
+      }
+      datasets[piece.datasetId].pieces.push(piece);
+      datasets[piece.datasetId].count++;
+    });
+    
+    const datasetList = Object.values(datasets);
+    
+    console.log(`📊 Available datasets: ${datasetList.length}`);
+    
+    res.json({
+      count: datasetList.length,
+      datasets: datasetList
+    });
+  } catch (error) {
+    console.error('Error fetching datasets:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * POST /api/jobs
  * Create a new job with fragments
- * - Uploads each fragment to Filecoin
- * - Submits job to blockchain with piece CIDs
+ * - Option 1: Use existing Filecoin dataset (provide datasetId)
+ * - Option 2: Upload new data to Filecoin (provide data array)
  */
 app.post('/api/jobs', async (req, res) => {
   try {
-    const { data, jobType, bountyPerFragment, prompt } = req.body;
+    const { datasetId, data, jobType, bountyPerFragment, prompt } = req.body;
     
-    if (!data || !Array.isArray(data) || data.length === 0) {
-      return res.status(400).json({ error: 'Invalid data array' });
+    let pieceCids = [];
+    let numFragments = 0;
+    let useExistingDataset = false;
+    
+    // Option 1: Use existing Filecoin dataset
+    if (datasetId) {
+      console.log(`\n📋 Creating job from existing dataset ${datasetId}...`);
+      const datasetPieces = allFilecoinPieces.filter(p => p.datasetId === parseInt(datasetId));
+      
+      if (datasetPieces.length === 0) {
+        return res.status(404).json({ error: `Dataset ${datasetId} not found` });
+      }
+      
+      pieceCids = datasetPieces.map(p => p.cid);
+      numFragments = pieceCids.length;
+      useExistingDataset = true;
+      
+      console.log(`   ✅ Using ${numFragments} existing pieces from Filecoin`);
     }
-    
-    console.log(`\n📋 Creating job with ${data.length} fragments...`);
-    
-    // Step 1: Upload each fragment to Filecoin
-    const uploadedFragments = [];
-    const pieceCids = [];
-    
-    for (let i = 0; i < data.length; i++) {
-      const fragmentData = {
-        fragmentIndex: i,
-        data: data[i],
-        jobType: jobType || 'gemma-text-classification',
-        prompt: prompt,
-        timestamp: new Date().toISOString()
-      };
+    // Option 2: Upload new data to Filecoin
+    else if (data && Array.isArray(data) && data.length > 0) {
+      console.log(`\n📋 Creating job with ${data.length} new fragments...`);
       
-      console.log(`   [${i + 1}/${data.length}] Uploading fragment to Filecoin...`);
-      const uploaded = await uploadToFilecoin(fragmentData, {
-        fragmentIndex: i.toString(),
-        jobType: jobType || 'gemma-text-classification'
-      });
+      // Upload each fragment to Filecoin
+      for (let i = 0; i < data.length; i++) {
+        const fragmentData = {
+          fragmentIndex: i,
+          data: data[i],
+          jobType: jobType || 'gemma-text-classification',
+          prompt: prompt,
+          timestamp: new Date().toISOString()
+        };
+        
+        console.log(`   [${i + 1}/${data.length}] Uploading fragment to Filecoin...`);
+        const uploaded = await uploadToFilecoin(fragmentData, {
+          fragmentIndex: i.toString(),
+          jobType: jobType || 'gemma-text-classification'
+        });
+        
+        pieceCids.push(uploaded.cid);
+        console.log(`   ✅ Fragment ${i} uploaded: ${uploaded.cid}`);
+      }
       
-      uploadedFragments.push({
-        ...fragmentData,
-        ...uploaded
-      });
-      
-      pieceCids.push(uploaded.cid);
-      console.log(`   ✅ Fragment ${i} uploaded: ${uploaded.cid}`);
+      numFragments = data.length;
+    }
+    else {
+      return res.status(400).json({ error: 'Either datasetId or data array required' });
     }
     
     // Step 2: Calculate total payment and ensure balance
-    const totalPayment = ethers.parseEther((data.length * 0.1).toString());
+    const totalPayment = ethers.parseEther((numFragments * 0.1).toString());
     
     console.log(`\n💰 Total payment needed: ${ethers.formatEther(totalPayment)} SAGA Dollar`);
     
@@ -238,9 +294,9 @@ app.post('/api/jobs', async (req, res) => {
     
     // Step 4: Submit job to blockchain with Filecoin piece CIDs
     console.log(`\n📤 Submitting job to blockchain...`);
-    const datasetId = Date.now(); // Use timestamp as dataset ID
+    const blockchainDatasetId = datasetId || Date.now(); // Use provided or timestamp
     const tx = await jobRouter.submitJob(
-      datasetId,
+      blockchainDatasetId,
       pieceCids, // Real Filecoin piece CIDs!
       jobType || 'gemma-text-classification'
     );
@@ -271,54 +327,36 @@ app.post('/api/jobs', async (req, res) => {
     // Step 5: Store job and fragments locally
     const jobData = {
       jobId,
-      datasetId,
+      datasetId: blockchainDatasetId,
       requester: wallet.address,
       jobType: jobType || 'gemma-text-classification',
       prompt,
-      totalFragments: data.length,
+      totalFragments: numFragments,
       completedFragments: 0,
       status: 'active',
       bountyPerFragment: bountyPerFragment || 0.1,
       transactionHash: tx.hash,
       explorerUrl: getExplorerUrl(tx.hash),
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      useExistingDataset
     };
     
     jobs.set(jobId, jobData);
     
-    // Store fragments with blockchain task IDs
-    for (let i = 0; i < uploadedFragments.length; i++) {
-      const taskId = (parseInt(jobId) * 1000 + i).toString(); // Generate task ID
-      const fragment = {
-        fragmentId: taskId,
-        jobId,
-        fragmentIndex: i,
-        totalFragments: data.length,
-        data: uploadedFragments[i].data,
-        bountyAmount: bountyPerFragment || 0.1,
-        pieceCid: pieceCids[i],
-        filecoinUrl: uploadedFragments[i].cdnUrl,
-        blobId: pieceCids[i],
-        encryptionId: `hyp-${taskId}`, // Mock encryption ID (integrate Hyperlane later)
-        status: 'pending',
-        createdAt: new Date().toISOString()
-      };
-      
-      fragments.set(taskId, fragment);
-    }
-    
     console.log(`\n✅ Job created successfully!`);
     console.log(`   Job ID: ${jobId}`);
-    console.log(`   Fragments: ${data.length}`);
+    console.log(`   Fragments: ${numFragments}`);
+    console.log(`   Dataset: ${useExistingDataset ? 'Existing' : 'New'}`);
     console.log(`   Explorer: ${getExplorerUrl(tx.hash)}\n`);
     
     res.json({
       success: true,
       jobId,
-      totalFragments: data.length,
+      totalFragments: numFragments,
       transactionHash: tx.hash,
       explorerUrl: getExplorerUrl(tx.hash),
-      blockNumber: receipt.blockNumber
+      blockNumber: receipt.blockNumber,
+      useExistingDataset
     });
     
   } catch (error) {
