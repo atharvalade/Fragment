@@ -191,12 +191,19 @@ async function uploadToFilecoin(data, metadata = {}) {
  */
 async function downloadFromFilecoin(pieceCid) {
   try {
-    const synapse = await getSynapse();
-    const data = await synapse.storage.download(pieceCid);
-    const decoded = new TextDecoder().decode(data);
-    return JSON.parse(decoded.trim());
+    // Use CDN URL directly - simple and fast!
+    const walletAddress = '0x9f93EebD463d4B7c991986a082d974E77b5a02Dc';
+    const cdnUrl = `https://${walletAddress}.calibration.filbeam.io/${pieceCid}`;
+    
+    const response = await fetch(cdnUrl);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    return data;
   } catch (error) {
-    console.error('Error downloading from Filecoin:', error);
+    console.error('Error downloading from Filecoin CDN:', error.message);
     throw error;
   }
 }
@@ -682,33 +689,68 @@ app.get('/api/jobs/:jobId/results', async (req, res) => {
   try {
     const { jobId } = req.params;
     
-    const job = jobs.get(jobId);
-    if (!job) {
+    console.log(`\n📊 Generating results CSV for job ${jobId}...`);
+    
+    // Get job from blockchain
+    const job = await jobRouter.jobs(jobId);
+    if (!job || !job.requester) {
       return res.status(404).json({ error: 'Job not found' });
     }
     
-    // Get all completed fragments
-    const completedFragments = Array.from(fragments.values())
-      .filter(f => f.jobId === jobId && f.status === 'completed')
-      .sort((a, b) => a.fragmentIndex - b.fragmentIndex);
+    // Get all task IDs for this job
+    const taskIds = await jobRouter.getJobTasks(jobId);
+    console.log(`   Found ${taskIds.length} tasks`);
     
-    // Generate CSV
-    let csv = 'Fragment Index,Input Text,Result Label,Worker ID,Completed At\n';
+    // Generate CSV header
+    let csv = 'Task ID,Input Text,AI Classification,Worker Address,Status\n';
     
-    for (const fragment of completedFragments) {
-      if (fragment.result?.blobId) {
+    // Process each task
+    for (let i = 0; i < taskIds.length; i++) {
+      const taskId = taskIds[i];
+      const task = await jobRouter.tasks(taskId);
+      
+      console.log(`   Processing task ${taskId}...`);
+      
+      let inputText = 'N/A';
+      let classification = 'N/A';
+      const status = ['Pending', 'Assigned', 'Completed', 'Failed'][Number(task.status)];
+      const workerAddr = task.assignedWorker === '0x0000000000000000000000000000000000000000' 
+        ? 'Unassigned' 
+        : task.assignedWorker;
+      
+      // Download input content from Filecoin if we have the CID
+      if (task.pieceCid) {
         try {
-          const resultData = await downloadFromFilecoin(fragment.result.blobId);
-          const label = resultData.output?.label || 'unknown';
-          csv += `${fragment.fragmentIndex},"${fragment.data.text}","${label}","${fragment.workerId}","${fragment.completedAt}"\n`;
+          const inputData = await downloadFromFilecoin(task.pieceCid);
+          inputText = inputData.data?.text || JSON.stringify(inputData);
         } catch (error) {
-          console.error(`Error downloading result for fragment ${fragment.fragmentId}:`, error);
+          console.error(`   Could not download input for task ${taskId}:`, error.message);
+          inputText = 'Error loading input';
         }
       }
+      
+      // Parse result classification from resultCid
+      if (task.resultCid && task.resultCid !== '') {
+        // Result format is like: "result-safe-task-1"
+        if (task.resultCid.includes('safe')) {
+          classification = 'safe';
+        } else if (task.resultCid.includes('unsafe')) {
+          classification = 'unsafe';
+        } else {
+          classification = task.resultCid;
+        }
+      }
+      
+      // Escape quotes in text for CSV
+      inputText = inputText.replace(/"/g, '""');
+      
+      csv += `${taskId.toString()},"${inputText}","${classification}","${workerAddr}","${status}"\n`;
     }
     
+    console.log(`   ✅ CSV generated with ${taskIds.length} rows\n`);
+    
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename=results_${jobId}.csv`);
+    res.setHeader('Content-Disposition', `attachment; filename=job_${jobId}_results.csv`);
     res.send(csv);
     
   } catch (error) {
