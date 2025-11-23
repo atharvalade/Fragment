@@ -93,63 +93,68 @@ async function getSynapse() {
 }
 
 /**
- * Query all datasets by reading JobSubmitted events from blockchain
- * Each job has datasetId and piece CIDs stored on-chain
+ * Query all datasets directly from Filecoin using Synapse SDK
+ * Same approach as download.js
  */
 async function getAllFilecoinDatasets() {
   try {
-    console.log('📊 Querying blockchain for all submitted jobs...');
+    console.log('📊 Querying Filecoin for all datasets...');
     
-    // Get all JobSubmitted events from the contract
-    const filter = jobRouter.filters.JobSubmitted();
-    const events = await jobRouter.queryFilter(filter, 0, 'latest');
+    const synapse = await getSynapse();
     
-    console.log(`   Found ${events.length} job submission events`);
+    // Get all datasets uploaded by this wallet
+    const datasets = await synapse.storage.findDataSets();
+    console.log(`   Found ${datasets.length} datasets`);
     
-    // Extract unique datasets with their pieces
-    const datasetsMap = new Map();
+    // Import PDPServer to get pieces
+    const { PDPServer } = await import('@filoz/synapse-sdk');
     
-    for (const event of events) {
-      const jobId = event.args.jobId.toString();
-      const datasetId = event.args.datasetId.toString();
-      
-      // Get task IDs for this job
-      const taskIds = await jobRouter.getJobTasks(jobId);
-      
-      // Get piece CIDs from tasks
-      const pieces = [];
-      for (const taskId of taskIds) {
-        const task = await jobRouter.getTask(taskId);
-        pieces.push({
-          cid: task.pieceCid,
-          cdnUrl: `https://${wallet.address}.calibration.filbeam.io/${task.pieceCid}`
-        });
-      }
-      
-      if (!datasetsMap.has(datasetId)) {
-        datasetsMap.set(datasetId, {
-          datasetId: parseInt(datasetId),
-          pieces: [],
-          jobIds: []
-        });
-      }
-      
-      const dataset = datasetsMap.get(datasetId);
-      dataset.jobIds.push(jobId);
-      // Add pieces that aren't already in the dataset
-      pieces.forEach(piece => {
-        if (!dataset.pieces.find(p => p.cid === piece.cid)) {
-          dataset.pieces.push(piece);
+    const allDatasets = [];
+    
+    for (const dataset of datasets) {
+      try {
+        // Get provider info and PDP server
+        const providerInfo = await synapse.getProviderInfo(dataset.providerId);
+        const serviceURL = providerInfo.products.PDP?.data.serviceURL;
+        
+        if (!serviceURL) {
+          console.warn(`   No PDP service URL for dataset ${dataset.id}`);
+          continue;
         }
-      });
+        
+        const pdpServer = new PDPServer(null, serviceURL);
+        const datasetData = await pdpServer.getDataSet(dataset.pdpVerifierDataSetId);
+        const pieces = datasetData.pieces || [];
+        
+        const piecesWithLinks = pieces.map(piece => {
+          const v1Cid = piece.pieceCid.toV1().toString();
+          return {
+            cid: v1Cid,
+            size: piece.size,
+            metadata: piece.metadata,
+            cdnUrl: `https://${wallet.address}.calibration.filbeam.io/${v1Cid}`
+          };
+        });
+        
+        allDatasets.push({
+          datasetId: dataset.id || dataset.pdpVerifierDataSetId,
+          pieces: piecesWithLinks,
+          withCDN: dataset.withCDN,
+          providerId: dataset.providerId
+        });
+        
+        console.log(`   ✅ Dataset ${dataset.id}: ${pieces.length} pieces`);
+        
+      } catch (error) {
+        console.warn(`   Failed to fetch pieces for dataset ${dataset.id}:`, error.message);
+      }
     }
     
-    const datasets = Array.from(datasetsMap.values());
-    console.log(`   ✅ Found ${datasets.length} unique datasets`);
+    console.log(`   ✅ Total: ${allDatasets.length} datasets with pieces`);
+    return allDatasets;
     
-    return datasets;
   } catch (error) {
-    console.error('Error querying datasets from blockchain:', error);
+    console.error('Error querying Filecoin datasets:', error);
     return [];
   }
 }
