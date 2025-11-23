@@ -44,26 +44,26 @@ struct JobsView: View {
                 Circle()
                     .fill(
                         LinearGradient(
-                            colors: workerService.isWorking ? [Color.green, Color.blue] : [Color.gray, Color.gray.opacity(0.7)],
+                            colors: workerService.activeWorkers.isEmpty ? [Color.gray, Color.gray.opacity(0.7)] : [Color.green, Color.blue],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
                     )
                     .frame(width: 36, height: 36)
                 
-                Image(systemName: workerService.isWorking ? "bolt.fill" : "bolt.slash")
+                Image(systemName: workerService.activeWorkers.isEmpty ? "bolt.slash" : "bolt.fill")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(.white)
             }
             
             VStack(alignment: .leading, spacing: 2) {
-                Text("Fragment Worker")
+                Text("Fragment Workers")
                     .font(.headline)
                     .foregroundColor(.primary)
                 
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(workerService.isWorking ? Color.green : Color.gray)
+                        .fill(workerService.activeWorkers.isEmpty ? Color.gray : Color.green)
                         .frame(width: 6, height: 6)
                     
                     Text(workerService.statusMessage)
@@ -81,35 +81,13 @@ struct JobsView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "plus.circle")
                         .font(.system(size: 14))
-                    Text("Add Worker")
+                    Text("Open Worker Window")
                         .font(.system(size: 13, weight: .medium))
                 }
                 .foregroundColor(.white)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .background(Color.blue)
-                .cornerRadius(8)
-            }
-            .buttonStyle(.plain)
-            
-            // Start/Stop Button
-            Button(action: {
-                if workerService.isWorking {
-                    workerService.stopWorker()
-                } else {
-                    workerService.startWorker()
-                }
-            }) {
-                HStack(spacing: 6) {
-                    Image(systemName: workerService.isWorking ? "stop.circle" : "play.circle")
-                        .font(.system(size: 14))
-                    Text(workerService.isWorking ? "Stop Worker" : "Start Worker")
-                        .font(.system(size: 13, weight: .medium))
-                }
-                .foregroundColor(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(workerService.isWorking ? Color.red : Color.green)
                 .cornerRadius(8)
             }
             .buttonStyle(.plain)
