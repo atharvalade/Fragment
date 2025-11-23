@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   Brain, TrendingUp, Upload, Loader2, CheckCircle2, Info, ArrowLeft, 
-  Package, Shield, Database, Cpu, ExternalLink, Activity, Zap, Clock
+  Package, Shield, Database, Cpu, ExternalLink, Activity, Zap, Clock, ChevronDown
 } from "lucide-react";
 import Link from "next/link";
 import { getApiUrl } from "@/lib/config";
@@ -62,6 +62,12 @@ interface Dataset {
   }>;
 }
 
+interface DatasetPreview {
+  datasetId: number;
+  loading: boolean;
+  data: any[];
+}
+
 export default function SubmitJob() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -74,6 +80,8 @@ export default function SubmitJob() {
   const [availableDatasets, setAvailableDatasets] = useState<Dataset[]>([]);
   const [selectedDatasetId, setSelectedDatasetId] = useState<number | null>(null);
   const [useExistingDataset, setUseExistingDataset] = useState(true);
+  const [datasetPreviews, setDatasetPreviews] = useState<Map<number, DatasetPreview>>(new Map());
+  const [showingDatasetId, setShowingDatasetId] = useState<number | null>(null);
 
   // AI Form State
   const [aiText, setAiText] = useState("");
@@ -92,6 +100,40 @@ export default function SubmitJob() {
       })
       .catch(console.error);
   }, []);
+
+  // Load dataset preview
+  const loadDatasetPreview = async (datasetId: number) => {
+    if (datasetPreviews.has(datasetId)) {
+      setShowingDatasetId(showingDatasetId === datasetId ? null : datasetId);
+      return;
+    }
+
+    setShowingDatasetId(datasetId);
+    setDatasetPreviews(prev => new Map(prev).set(datasetId, { datasetId, loading: true, data: [] }));
+
+    const dataset = availableDatasets.find(d => d.datasetId === datasetId);
+    if (!dataset) return;
+
+    try {
+      const dataPromises = dataset.pieces.map(piece =>
+        fetch(piece.cdnUrl).then(res => res.json())
+      );
+      const allData = await Promise.all(dataPromises);
+      
+      setDatasetPreviews(prev => new Map(prev).set(datasetId, { 
+        datasetId, 
+        loading: false, 
+        data: allData 
+      }));
+    } catch (error) {
+      console.error('Error loading dataset preview:', error);
+      setDatasetPreviews(prev => new Map(prev).set(datasetId, { 
+        datasetId, 
+        loading: false, 
+        data: [] 
+      }));
+    }
+  };
 
   const addLog = (type: SubmissionLog['type'], message: string) => {
     setSubmissionLogs(prev => [...prev, { type, message, timestamp: Date.now() }]);
@@ -775,28 +817,152 @@ export default function SubmitJob() {
 
                 {/* Option 1: Select Existing Dataset */}
                 {useExistingDataset && (
-                  <div>
-                    <Label htmlFor="dataset-select">Select Filecoin Dataset</Label>
-                    <select
-                      id="dataset-select"
-                      value={selectedDatasetId || ''}
-                      onChange={(e) => setSelectedDatasetId(parseInt(e.target.value))}
-                      className="mt-2 w-full px-4 py-3 rounded-lg border border-white/10 bg-background"
-                    >
-                      {availableDatasets.map(dataset => (
-                        <option key={dataset.datasetId} value={dataset.datasetId}>
-                          Dataset #{dataset.datasetId} - {dataset.count} fragments
-                        </option>
-                      ))}
-                    </select>
-                    {selectedDatasetId && (
-                      <div className="mt-3 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                        <div className="flex items-center gap-2 text-sm text-blue-400">
-                          <Database className="w-4 h-4" />
-                          <span>
-                            This dataset is already on Filecoin with {availableDatasets.find(d => d.datasetId === selectedDatasetId)?.count} fragments
-                          </span>
-                        </div>
+                  <div className="space-y-4">
+                    <div>
+                      <Label className="text-base font-semibold">Available Filecoin Datasets</Label>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Select a dataset that's already stored on Filecoin
+                      </p>
+                    </div>
+
+                    {availableDatasets.length === 0 ? (
+                      <div className="p-8 text-center border border-dashed rounded-lg">
+                        <Package className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
+                        <p className="text-sm text-muted-foreground">No datasets available</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Upload new data to create your first dataset
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {availableDatasets.map(dataset => {
+                          const isSelected = selectedDatasetId === dataset.datasetId;
+                          const preview = datasetPreviews.get(dataset.datasetId);
+                          const isShowing = showingDatasetId === dataset.datasetId;
+
+                          return (
+                            <div
+                              key={dataset.datasetId}
+                              className={`border rounded-lg transition-all ${
+                                isSelected 
+                                  ? 'border-primary bg-primary/5' 
+                                  : 'border-white/10 hover:border-white/20'
+                              }`}
+                            >
+                              {/* Dataset Header */}
+                              <div
+                                onClick={() => setSelectedDatasetId(dataset.datasetId)}
+                                className="p-4 cursor-pointer"
+                              >
+                                <div className="flex items-center justify-between mb-3">
+                                  <div className="flex items-center gap-3">
+                                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                                      isSelected ? 'bg-primary/20' : 'bg-muted'
+                                    }`}>
+                                      <Database className={`w-5 h-5 ${isSelected ? 'text-primary' : 'text-muted-foreground'}`} />
+                                    </div>
+                                    <div>
+                                      <div className="font-semibold text-sm">Dataset #{dataset.datasetId}</div>
+                                      <div className="text-xs text-muted-foreground">{dataset.count} fragments</div>
+                                    </div>
+                                  </div>
+                                  {isSelected && (
+                                    <CheckCircle2 className="w-5 h-5 text-primary" />
+                                  )}
+                                </div>
+
+                                {/* Dataset Stats */}
+                                <div className="grid grid-cols-3 gap-3 mb-3">
+                                  <div className="p-2 bg-muted/30 rounded">
+                                    <div className="text-xs text-muted-foreground">Fragments</div>
+                                    <div className="font-semibold text-sm">{dataset.count}</div>
+                                  </div>
+                                  <div className="p-2 bg-muted/30 rounded">
+                                    <div className="text-xs text-muted-foreground">Cost</div>
+                                    <div className="font-semibold text-sm text-green-500">{(dataset.count * 0.1).toFixed(1)} wSAGA</div>
+                                  </div>
+                                  <div className="p-2 bg-muted/30 rounded">
+                                    <div className="text-xs text-muted-foreground">Storage</div>
+                                    <div className="font-semibold text-sm">Filecoin</div>
+                                  </div>
+                                </div>
+
+                                {/* Piece CIDs */}
+                                <div className="space-y-2">
+                                  {dataset.pieces.slice(0, 2).map((piece, idx) => (
+                                    <div key={piece.cid} className="p-2 bg-black/20 rounded text-xs">
+                                      <div className="flex items-center gap-2 mb-1">
+                                        <span className="text-muted-foreground">Fragment #{idx}:</span>
+                                        <code className="text-purple-400 font-mono">{piece.cid.substring(0, 20)}...</code>
+                                      </div>
+                                      <a
+                                        href={piece.cdnUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-1 text-blue-400 hover:text-blue-300"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <ExternalLink className="w-3 h-3" />
+                                        <span>View on Filecoin CDN</span>
+                                      </a>
+                                    </div>
+                                  ))}
+                                  {dataset.pieces.length > 2 && (
+                                    <div className="text-xs text-muted-foreground text-center">
+                                      +{dataset.pieces.length - 2} more fragments
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Preview Button & Content */}
+                              <div className="border-t border-white/10 p-3">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="w-full"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    loadDatasetPreview(dataset.datasetId);
+                                  }}
+                                >
+                                  {preview?.loading ? (
+                                    <>
+                                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                      Loading content...
+                                    </>
+                                  ) : isShowing ? (
+                                    <>
+                                      <ChevronDown className="w-4 h-4 mr-2 rotate-180" />
+                                      Hide Dataset Content
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Info className="w-4 h-4 mr-2" />
+                                      View Dataset Content
+                                    </>
+                                  )}
+                                </Button>
+
+                                {/* Dataset Content Preview */}
+                                {isShowing && preview && !preview.loading && (
+                                  <div className="mt-3 space-y-2 max-h-[300px] overflow-y-auto">
+                                    {preview.data.map((item, idx) => (
+                                      <div key={idx} className="p-3 bg-black/40 rounded border border-white/5">
+                                        <div className="text-xs text-muted-foreground mb-1">Fragment #{idx}</div>
+                                        <div className="text-sm">{JSON.stringify(item.data || item, null, 2)}</div>
+                                        <div className="text-xs text-muted-foreground mt-2">
+                                          Timestamp: {item.timestamp || 'N/A'}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
