@@ -313,7 +313,14 @@ app.post('/api/jobs', async (req, res) => {
     
     console.log(`\n💰 Total payment needed: ${ethers.formatEther(totalPayment)} wSAGA`);
     
-    const balance = await sagaDollar.balanceOf(wallet.address);
+    // Use same approach as wallets endpoint - provider instead of wallet
+    const walletAddress = '0x9f93EebD463d4B7c991986a082d974E77b5a02Dc';
+    const wSagaReadOnly = new ethers.Contract(
+      process.env.SAGA_DOLLAR_ADDRESS,
+      ['function balanceOf(address) view returns (uint256)'],
+      sagaProvider
+    );
+    const balance = await wSagaReadOnly.balanceOf(walletAddress);
     console.log(`   Current balance: ${ethers.formatEther(balance)} wSAGA`);
     
     if (balance < totalPayment) {
@@ -324,7 +331,7 @@ app.post('/api/jobs', async (req, res) => {
       });
     }
     
-    // Step 3: Approve JobRouter to spend SAGA Dollar
+    // Step 3: Approve JobRouter to spend wSAGA (need wallet signer for write operation)
     console.log(`\n🔓 Approving contract to spend tokens...`);
     const approveTx = await sagaDollar.approve(
       process.env.JOB_ROUTER_ADDRESS,
