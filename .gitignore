@@ -2,6 +2,10 @@ working.md
 feedback.md
 .env
 
+# Original Shard apps (should not be tracked)
+Shard/
+Shard-Frontend/
+
 # Dependencies
 node_modules/
 package-lock.json
