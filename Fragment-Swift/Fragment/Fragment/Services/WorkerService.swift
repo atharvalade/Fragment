@@ -391,7 +391,10 @@ class WorkerService: ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        let body: [String: Any] = ["taskId": taskId]
+        let body: [String: Any] = [
+            "taskId": taskId,
+            "result": classification  // Include the AI classification result!
+        ]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         
         do {

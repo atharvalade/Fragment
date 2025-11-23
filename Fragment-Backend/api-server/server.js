@@ -159,29 +159,112 @@ const fragments = new Map();
 // ============================================================================
 
 /**
- * Upload data to Filecoin and get piece CID
+ * Upload entire CSV to Filecoin as ONE NEW DATASET
+ * Returns array of CIDs for each fragment
+ */
+async function uploadEntireCSVToFilecoin(dataArray) {
+  try {
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const execAsync = promisify(exec);
+    
+    const filecoinDir = path.join(__dirname, '../Filecoin');
+    const tempFile = path.join(filecoinDir, `temp-upload-${Date.now()}.csv`);
+    
+    // Write entire CSV file with all rows
+    let csvContent = 'text\n';
+    for (const item of dataArray) {
+      const textContent = item.text || JSON.stringify(item);
+      // No quotes or escaping - keep it simple
+      csvContent += textContent + '\n';
+    }
+    
+    fs.writeFileSync(tempFile, csvContent);
+    console.log(`   📝 Wrote ${dataArray.length} rows to CSV`);
+    
+    // Upload using the working script (properly quote path with spaces)
+    const { stdout } = await execAsync(`node upload.js "${tempFile}"`, {
+      cwd: filecoinDir,
+      timeout: 120000 // 2 minutes for multiple fragments
+    });
+    
+    // Parse all CIDs from the output
+    const cidMatches = stdout.matchAll(/(?:📦 CID:|Piece CID:)\s+(bafk[a-z0-9]+)/g);
+    const cids = Array.from(cidMatches).map(match => match[1]);
+    
+    if (cids.length === 0) {
+      console.error('Upload output:', stdout);
+      throw new Error('Could not extract any CIDs from upload output');
+    }
+    
+    // Clean up temp file
+    fs.unlinkSync(tempFile);
+    
+    console.log(`   ✅ Uploaded ${cids.length} fragments to new dataset`);
+    return cids;
+  } catch (error) {
+    console.error('Error uploading CSV to Filecoin:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Upload data to Filecoin and get piece CID (single fragment - LEGACY)
  */
 async function uploadToFilecoin(data, metadata = {}) {
   try {
-    const synapse = await getSynapse();
-    const storage = await synapse.storage.createContext({ withCDN: true });
+    // Use the working upload.js script - but write CSV format
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const execAsync = promisify(exec);
     
-    // Prepare data (minimum 127 bytes for Filecoin)
-    const jsonData = JSON.stringify(data);
-    const paddedData = jsonData.padEnd(127, ' ');
-    const bytes = new TextEncoder().encode(paddedData);
+    const filecoinDir = path.join(__dirname, '../Filecoin');
+    const tempFile = path.join(filecoinDir, `temp-upload-${Date.now()}.csv`);
     
-    // Upload
-    const { pieceCid, size } = await storage.upload(bytes, { metadata });
-    const cidV1 = pieceCid.toV1().toString();
+    // Extract just the text content, ignoring id or other fields
+    let textContent;
+    if (data.data && typeof data.data === 'object') {
+      // data = { fragmentIndex: 0, data: { id: "1", text: "..." }, ... }
+      textContent = data.data.text || JSON.stringify(data.data);
+    } else if (data.text) {
+      textContent = data.text;
+    } else if (typeof data === 'string') {
+      textContent = data;
+    } else {
+      textContent = JSON.stringify(data);
+    }
+    
+    // Escape quotes by doubling them and wrap in quotes
+    const escapedText = textContent.replace(/"/g, '""');
+    const csvContent = `text\n"${escapedText}"`;
+    
+    fs.writeFileSync(tempFile, csvContent);
+    
+    // Upload using the working script (properly quote path with spaces)
+    const { stdout } = await execAsync(`node upload.js "${tempFile}"`, {
+      cwd: filecoinDir,
+      timeout: 60000
+    });
+    
+    // Parse the output to get the CID (matches "📦 CID: bafk..." or "Piece CID: bafk...")
+    const cidMatch = stdout.match(/(?:📦 CID:|Piece CID:)\s+(bafk[a-z0-9]+)/);
+    if (!cidMatch) {
+      console.error('Upload output:', stdout);
+      throw new Error('Could not extract CID from upload output');
+    }
+    
+    const cid = cidMatch[1];
+    
+    // Clean up temp file
+    fs.unlinkSync(tempFile);
     
     return {
-      cid: cidV1,
-      cdnUrl: `https://${wallet.address}.calibration.filbeam.io/${cidV1}`,
-      size
+      cid: cid,
+      cdnUrl: `https://0x9f93EebD463d4B7c991986a082d974E77b5a02Dc.calibration.filbeam.io/${cid}`,
+      size: Buffer.byteLength(csvContent)
     };
   } catch (error) {
-    console.error('Error uploading to Filecoin:', error);
+    console.error('Error uploading to Filecoin:', error.message);
     throw error;
   }
 }
@@ -285,31 +368,15 @@ app.post('/api/jobs', async (req, res) => {
       
       console.log(`   ✅ Using ${numFragments} existing pieces from dataset ${datasetId}`);
     }
-    // Option 2: Upload new data to Filecoin
+    // Option 2: Upload new data to Filecoin as ONE NEW DATASET
     else if (data && Array.isArray(data) && data.length > 0) {
-      console.log(`\n📋 Creating job with ${data.length} new fragments...`);
+      console.log(`\n📋 Creating job with ${data.length} new fragments in ONE NEW DATASET...`);
       
-      // Upload each fragment to Filecoin
-      for (let i = 0; i < data.length; i++) {
-        const fragmentData = {
-          fragmentIndex: i,
-          data: data[i],
-          jobType: jobType || 'gemma-text-classification',
-          prompt: prompt,
-          timestamp: new Date().toISOString()
-        };
-        
-        console.log(`   [${i + 1}/${data.length}] Uploading fragment to Filecoin...`);
-        const uploaded = await uploadToFilecoin(fragmentData, {
-          fragmentIndex: i.toString(),
-          jobType: jobType || 'gemma-text-classification'
-        });
-        
-        pieceCids.push(uploaded.cid);
-        console.log(`   ✅ Fragment ${i} uploaded: ${uploaded.cid}`);
-      }
-      
+      // Upload entire CSV at once to create one new dataset
+      pieceCids = await uploadEntireCSVToFilecoin(data);
       numFragments = data.length;
+      
+      console.log(`   ✅ Created new dataset with ${numFragments} fragments`);
     }
     else {
       return res.status(400).json({ error: 'Either datasetId or data array required' });
@@ -443,27 +510,45 @@ app.get('/api/jobs/:jobId', async (req, res) => {
       const task = await jobRouter.getTask(taskId);
       const fragmentId = taskId.toString();
       
-      const fragment = fragments.get(fragmentId) || {
+      // Download actual content from Filecoin
+      let textContent = 'Loading...';
+      if (task.pieceCid) {
+        try {
+          const inputData = await downloadFromFilecoin(task.pieceCid);
+          textContent = inputData.data?.text || inputData.text || JSON.stringify(inputData);
+        } catch (error) {
+          console.error(`Could not download content for task ${taskId}:`, error.message);
+          textContent = 'Error loading content';
+        }
+      }
+      
+      const fragment = {
         fragmentId,
         jobId,
         fragmentIndex: fragmentsList.length,
-        data: { text: 'Loading...' },
-        bountyAmount: 0.1,
+        data: { text: textContent },
+        bountyAmount: 0.01,
         pieceCid: task.pieceCid,
         filecoinUrl: `https://${wallet.address}.calibration.filbeam.io/${task.pieceCid}`,
         blobId: task.pieceCid,
         status: ['pending', 'assigned', 'completed', 'failed'][Number(task.status)]
       };
       
-      // Update status from blockchain
-      fragment.status = ['pending', 'assigned', 'completed', 'failed'][Number(task.status)];
-      
       if (task.assignedWorker !== ethers.ZeroAddress) {
         fragment.workerId = task.assignedWorker;
       }
       
       if (task.resultCid) {
+        // Check for 'unsafe' FIRST since 'unsafe' contains 'safe'
+        let classification = 'unknown';
+        if (task.resultCid.includes('unsafe')) {
+          classification = 'unsafe';
+        } else if (task.resultCid.includes('safe')) {
+          classification = 'safe';
+        }
+        
         fragment.result = {
+          classification: classification,
           filecoinUrl: `https://${wallet.address}.calibration.filbeam.io/${task.resultCid}`,
           blobId: task.resultCid
         };
@@ -731,13 +816,18 @@ app.get('/api/jobs/:jobId/results', async (req, res) => {
       
       // Parse result classification from resultCid
       if (task.resultCid && task.resultCid !== '') {
-        // Result format is like: "result-safe-task-1"
-        if (task.resultCid.includes('safe')) {
-          classification = 'safe';
-        } else if (task.resultCid.includes('unsafe')) {
+        console.log(`   Task ${taskId} resultCid: "${task.resultCid}"`);
+        // Result format is like: "result-safe-task-1" or "result-unsafe-task-1"
+        // Check for 'unsafe' FIRST since 'unsafe' contains 'safe'
+        if (task.resultCid.includes('unsafe')) {
           classification = 'unsafe';
+          console.log(`   -> Classified as: unsafe`);
+        } else if (task.resultCid.includes('safe')) {
+          classification = 'safe';
+          console.log(`   -> Classified as: safe`);
         } else {
           classification = task.resultCid;
+          console.log(`   -> Classified as: ${task.resultCid}`);
         }
       }
       
@@ -767,13 +857,24 @@ app.get('/api/jobs/:jobId/results', async (req, res) => {
 const workerWalletsData = JSON.parse(fs.readFileSync(path.join(__dirname, 'worker-wallets.json'), 'utf-8'));
 const activeWorkers = new Map(); // Track active workers (workerId -> wallet instance)
 
+// Cache for worker data (refresh every 30 seconds)
+let workerDataCache = null;
+let workerDataCacheTime = 0;
+const WORKER_CACHE_TTL = 30000; // 30 seconds - aggressive caching
+
 /**
  * GET /api/workers
- * Get all worker wallets and their balances
+ * Get all worker wallets and their balances (cached for performance)
  */
 app.get('/api/workers', async (req, res) => {
   try {
-    console.log('\n👷 Fetching worker balances...');
+    // Return cached data if still fresh
+    const now = Date.now();
+    if (workerDataCache && (now - workerDataCacheTime) < WORKER_CACHE_TTL) {
+      return res.json({ workers: workerDataCache, cached: true });
+    }
+    
+    console.log('\n👷 Refreshing worker balances cache...');
     
     const workers = [];
     
@@ -786,16 +887,17 @@ app.get('/api/workers', async (req, res) => {
       let isRegistered = false;
       try {
         const workerInfo = await jobRouter.workers(workerData.address);
-        isRegistered = workerInfo.isActive;
+        isRegistered = workerInfo && workerInfo.isActive ? true : false;
       } catch (error) {
-        // Not registered
+        // Not registered - keep as false
+        isRegistered = false;
       }
       
       workers.push({
         id: workerData.id,
         address: workerData.address,
         isActive: activeWorkers.has(workerData.id),
-        isRegistered,
+        isRegistered: isRegistered,
         balance: {
           ment: parseFloat(ethers.formatEther(mentBalance)),
           wsaga: parseFloat(ethers.formatEther(wsagaBalance))
@@ -803,7 +905,11 @@ app.get('/api/workers', async (req, res) => {
       });
     }
     
-    console.log(`   ✅ Found ${workers.length} workers (${activeWorkers.size} active)\n`);
+    // Update cache
+    workerDataCache = workers;
+    workerDataCacheTime = now;
+    
+    console.log(`   ✅ Cached ${workers.length} workers (${activeWorkers.size} active)\n`);
     
     res.json({ workers });
     
@@ -833,24 +939,26 @@ app.post('/api/workers/:workerId/start', async (req, res) => {
     
     // Register worker on blockchain if not already registered
     const workerInfo = await jobRouter.workers(workerData.address);
+    let txHash = null;
     if (!workerInfo.isActive) {
-      console.log(`   Registering worker on blockchain...`);
+      console.log(`   Registering worker on blockchain (no wait)...`);
       const jobRouterWithWorker = jobRouter.connect(workerWallet);
       const tx = await jobRouterWithWorker.registerWorker();
-      console.log(`   TX: ${tx.hash}`);
-      await tx.wait();
-      console.log(`   ✅ Worker registered!`);
+      txHash = tx.hash;
+      console.log(`   TX submitted: ${tx.hash} (confirming in background)`);
+      // DON'T wait for confirmation - let it process in background
     }
     
-    // Add to active workers
+    // Add to active workers immediately
     activeWorkers.set(workerId, workerWallet);
     
-    console.log(`   ✅ Worker ${workerId} started and listening for tasks\n`);
+    console.log(`   ✅ Worker ${workerId} started instantly!\n`);
     
     res.json({
       success: true,
       workerId,
       address: workerData.address,
+      txHash: txHash,
       message: 'Worker started successfully'
     });
     
@@ -889,24 +997,37 @@ app.post('/api/workers/:workerId/stop', async (req, res) => {
   }
 });
 
+// Cache for available tasks (refresh every 30 seconds)
+let availableTasksCache = null;
+let availableTasksCacheTime = 0;
+const TASKS_CACHE_TTL = 30000; // 30 seconds - aggressive caching
+
 /**
  * GET /api/workers/available-tasks
- * Get all available tasks that workers can claim
+ * Get all available tasks that workers can claim (HEAVILY CACHED)
  */
 app.get('/api/workers/available-tasks', async (req, res) => {
   try {
-    console.log('\n📋 Fetching available tasks...');
+    // Return cached data if still fresh
+    const now = Date.now();
+    if (availableTasksCache && (now - availableTasksCacheTime) < TASKS_CACHE_TTL) {
+      return res.json({ tasks: availableTasksCache, cached: true });
+    }
+    
+    console.log('\n📋 Refreshing available tasks cache...');
     
     const taskCounter = await jobRouter.taskCounter();
     const availableTasks = [];
     
-    for (let i = 1; i <= taskCounter; i++) {
+    // OPTIMIZATION: Only check the last 20 tasks (most recent ones)
+    // Old completed tasks don't need to be scanned
+    const startFrom = Math.max(1, Number(taskCounter) - 19);
+    
+    for (let i = startFrom; i <= taskCounter; i++) {
       const task = await jobRouter.tasks(i);
       
       // Check if task is pending or assigned to a worker but not yet completed
       if (Number(task.status) === 0 || Number(task.status) === 1) {
-        const job = await jobRouter.jobs(task.jobId);
-        
         availableTasks.push({
           taskId: i.toString(),
           jobId: task.jobId.toString(),
@@ -918,7 +1039,11 @@ app.get('/api/workers/available-tasks', async (req, res) => {
       }
     }
     
-    console.log(`   ✅ Found ${availableTasks.length} available tasks\n`);
+    // Update cache
+    availableTasksCache = availableTasks;
+    availableTasksCacheTime = now;
+    
+    console.log(`   ✅ Cached ${availableTasks.length} available tasks\n`);
     
     res.json({ tasks: availableTasks });
     
@@ -935,45 +1060,42 @@ app.get('/api/workers/available-tasks', async (req, res) => {
 app.post('/api/workers/:workerId/complete-task', async (req, res) => {
   try {
     const workerId = parseInt(req.params.workerId);
-    const { taskId } = req.body;
+    const { taskId, result } = req.body;
     
-    console.log(`\n⚙️  Worker ${workerId} processing task ${taskId}...`);
+    console.log(`\n⚙️  Worker ${workerId} completing task ${taskId}...`);
+    console.log(`   Request body:`, JSON.stringify(req.body));
+    console.log(`   Result parameter: "${result}"`);
     
-    // Check if worker is active
-    const workerWallet = activeWorkers.get(workerId);
-    if (!workerWallet) {
-      return res.status(400).json({ error: 'Worker is not active' });
+    // Find worker data
+    const workerData = workerWalletsData.find(w => w.id === workerId);
+    if (!workerData) {
+      console.error(`   ❌ Worker ${workerId} not found in wallet data`);
+      return res.status(404).json({ error: 'Worker not found' });
     }
+    
+    // Create wallet instance (don't require activeWorkers - workers can complete tasks anytime)
+    const workerWallet = new ethers.Wallet(workerData.privateKey, sagaProvider);
+    console.log(`   ✅ Worker wallet: ${workerWallet.address}`);
     
     // Get task details
     const task = await jobRouter.tasks(taskId);
+    console.log(`   Task status: ${Number(task.status)} (0=Pending, 1=Assigned, 2=Completed, 3=Cancelled)`);
+    console.log(`   Assigned to: ${task.assignedWorker}`);
+    
     if (Number(task.status) !== 1) {
-      return res.status(400).json({ error: 'Task is not assigned' });
+      console.error(`   ❌ Task is not assigned (status: ${Number(task.status)})`);
+      return res.status(400).json({ error: `Task is not assigned (status: ${Number(task.status)})` });
     }
     
     // Check if assigned to this worker
     if (task.assignedWorker.toLowerCase() !== workerWallet.address.toLowerCase()) {
+      console.error(`   ❌ Task assigned to ${task.assignedWorker}, not ${workerWallet.address}`);
       return res.status(400).json({ error: 'Task is not assigned to this worker' });
     }
     
-    // Download input from Filecoin
-    console.log(`   Downloading input from Filecoin...`);
-    let inputText = '';
-    try {
-      const inputData = await downloadFromFilecoin(task.pieceCid);
-      inputText = inputData.data?.text || JSON.stringify(inputData);
-      console.log(`   Input: "${inputText.substring(0, 50)}..."`);
-    } catch (error) {
-      console.error(`   Could not download input:`, error.message);
-    }
-    
-    // Simulate AI processing (wait 1 second)
-    console.log(`   🤖 Running AI inference...`);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Always return "safe" for now
-    const classification = 'safe';
-    console.log(`   ✅ Classification: ${classification}`);
+    // Use the result from the request body (already computed by worker)
+    const classification = result || 'safe';
+    console.log(`   ✅ Classification from worker: ${classification}`);
     
     // Submit result to blockchain (skip Filecoin upload)
     console.log(`   📤 Submitting result to blockchain...`);
@@ -981,15 +1103,18 @@ app.post('/api/workers/:workerId/complete-task', async (req, res) => {
     const resultCid = `result-${classification}-task-${taskId}`;
     
     const tx = await jobRouterWithWorker.submitResult(taskId, resultCid);
-    console.log(`   TX: ${tx.hash}`);
-    const receipt = await tx.wait();
-    console.log(`   ✅ Result submitted!`);
+    console.log(`   TX submitted: ${tx.hash} (confirming in background)`);
+    // DON'T wait for confirmation - respond immediately
     
-    // Get updated balances
+    // Get current balance (will update in next cache refresh)
     const wsagaBalance = await sagaDollar.balanceOf(workerWallet.address);
+    const estimatedNewBalance = parseFloat(ethers.formatEther(wsagaBalance)) + 0.01;
     
-    console.log(`   💰 New balance: ${ethers.formatEther(wsagaBalance)} wSAGA`);
-    console.log(`   🎉 Task ${taskId} completed!\n`);
+    console.log(`   💰 Estimated new balance: ${estimatedNewBalance} wSAGA`);
+    console.log(`   🎉 Task ${taskId} submitted instantly!\n`);
+    
+    // Only invalidate available tasks cache (worker balances update slowly anyway)
+    availableTasksCache = null;
     
     res.json({
       success: true,
@@ -999,7 +1124,7 @@ app.post('/api/workers/:workerId/complete-task', async (req, res) => {
       txHash: tx.hash,
       explorerUrl: getExplorerUrl(tx.hash),
       bountyEarned: '0.01',
-      newBalance: parseFloat(ethers.formatEther(wsagaBalance))
+      newBalance: estimatedNewBalance
     });
     
   } catch (error) {

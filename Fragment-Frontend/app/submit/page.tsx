@@ -897,7 +897,7 @@ export default function SubmitJob() {
                                   </div>
                                   <div className="p-2 bg-muted/30 rounded">
                                     <div className="text-xs text-muted-foreground">Cost</div>
-                                    <div className="font-semibold text-sm text-green-500">{(dataset.count * 0.1).toFixed(1)} wSAGA</div>
+                                    <div className="font-semibold text-sm text-green-500">{(dataset.count * 0.01).toFixed(2)} wSAGA</div>
                                   </div>
                                   <div className="p-2 bg-muted/30 rounded">
                                     <div className="text-xs text-muted-foreground">Storage</div>
