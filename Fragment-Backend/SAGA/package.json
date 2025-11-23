@@ -6,6 +6,7 @@
   "scripts": {
     "compile": "hardhat compile",
     "deploy": "hardhat run scripts/deploy.js --network fragment",
+    "deploy:wsaga": "hardhat run scripts/deploy-with-wsaga.js --network fragment",
     "submit-job": "node scripts/submit-job.js",
     "register-worker": "node scripts/register-worker.js",
     "submit-result": "node scripts/submit-result.js",
