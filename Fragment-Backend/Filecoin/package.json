@@ -1,21 +1,23 @@
 {
   "name": "fragment-filecoin-service",
   "version": "1.0.0",
-  "description": "Filecoin integration for Fragment using Synapse SDK",
-  "main": "index.js",
+  "description": "Filecoin integration for Fragment using Synapse SDK with CDN support",
+  "main": "upload.js",
   "type": "module",
   "scripts": {
-    "test:upload": "node test-upload.js",
-    "test:download": "node test-download.js"
+    "setup": "node setup-payments.js",
+    "upload": "node upload.js",
+    "download": "node download.js help",
+    "datasets": "node download.js datasets",
+    "pieces": "node download.js all"
   },
-  "keywords": ["filecoin", "synapse", "fragment"],
+  "keywords": ["filecoin", "synapse", "fragment", "cdn"],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@filoz/synapse-sdk": "^0.20.1",
+    "@filoz/synapse-sdk": "^0.36.0",
     "ethers": "^6.13.0",
     "csv-parse": "^5.5.6",
     "dotenv": "^16.4.5"
   }
 }
-

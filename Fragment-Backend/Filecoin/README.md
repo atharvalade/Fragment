@@ -1,131 +1,189 @@
 # Fragment Filecoin Service
 
-Filecoin integration for Fragment using Synapse SDK to store and retrieve task fragments.
+Filecoin integration for Fragment using Synapse SDK with CDN support for fast global content delivery.
 
-## Setup
+## Features
 
-### 1. Install Dependencies
+✅ **Upload CSV fragments to Filecoin** with automatic chunking  
+✅ **CDN-enabled downloads** via Filecoin Beam for fast retrieval  
+✅ **Automatic payment management** with USDFC tokens  
+✅ **Progress tracking** with callbacks for all operations  
+✅ **Dataset management** for organizing related fragments  
+
+## Quick Start
+
+### 1. Setup Environment
 
 ```bash
-npm install
-```
-
-### 2. Configure Environment
-
-Copy `.env.example` to `.env` and add your Filecoin Calibration private key:
-
-```bash
+# Copy environment template
 cp .env.example .env
-# Edit .env and add your private key
+
+# Add your private key to .env
+PRIVATE_KEY=your_private_key_here
 ```
 
-### 3. Get Test Tokens
+### 2. Get Test Tokens
 
-You need test tokens for Filecoin Calibration network:
+**Get tFIL (for gas):**
+- https://faucet.calibnet.chainsafe-fil.io/funds.html
 
-**Get tFIL (for gas fees):**
-- Visit: https://faucet.calibnet.chainsafe-fil.io/funds.html
-- Enter your wallet address
-- Request tFIL tokens
+**Get USDFC (for storage):**
+- https://forest-explorer.chainsafe.dev/faucet/calibnet_usdfc
 
-**Get USDFC (for storage payments):**
-- Visit: https://forest-explorer.chainsafe.dev/faucet/calibnet_usdfc
-- Enter your wallet address
-- Request USDFC tokens
-
-## Testing
-
-### Upload Test
-
-Upload each sentence from `test-sentences.csv` to Filecoin:
+### 3. Setup Payment Account
 
 ```bash
-npm run test:upload
+npm run setup
 ```
 
-This will:
-1. Connect to Filecoin Calibration network
-2. Check/setup payment account
-3. Upload each sentence individually
-4. Save results to `upload-results.json` with CIDs
+This deposits 2.5 USDFC (~1 TiB storage for 30 days) and approves the storage operator.
 
-### Download Test
-
-Download and verify sentences from Filecoin:
+### 4. Upload Fragments
 
 ```bash
-npm run test:download
+# Upload with CDN enabled (default)
+npm run upload
+
+# Or specify CSV file
+node upload.js path/to/data.csv
+
+# Disable CDN
+node upload.js data.csv false
+
+# Use existing dataset
+node upload.js data.csv true 12345
 ```
 
-This will:
-1. Read CIDs from `upload-results.json`
-2. Download each sentence from Filecoin
-3. Verify content matches original
-4. Display download times
+### 5. Download Fragments
 
-## How It Works
+```bash
+# Download all from upload-results.json
+npm run download
 
-### Data Format
-
-Each sentence is wrapped in JSON before upload:
-```json
-{
-  "id": 0,
-  "text": "The actual sentence text",
-  "timestamp": "2025-11-22T10:30:00.000Z"
-}
+# Or download specific CIDs
+node download.js cid baga6ea4seaqXXXXX baga6ea4seaqYYYYY
 ```
-
-The data is padded to meet Filecoin's minimum size requirement of 127 bytes.
-
-### Upload Process
-
-1. Parse CSV file
-2. For each sentence:
-   - Wrap in JSON with metadata
-   - Encode to bytes
-   - Upload to Filecoin via Synapse SDK
-   - Store CID for later retrieval
-
-### Download Process
-
-1. Use CID to fetch data from Filecoin
-2. Decode bytes to text
-3. Parse JSON to extract sentence
-4. Verify against original
 
 ## File Structure
 
 ```
 Filecoin/
-├── test-sentences.csv      # Input: sentences for testing
-├── test-upload.js          # Script to upload to Filecoin
-├── test-download.js        # Script to download from Filecoin
-├── upload-results.json     # Output: CIDs and metadata
-├── package.json
-├── .env                    # Your private key (DO NOT COMMIT)
-└── .env.example            # Template for .env
+├── upload.js              # Upload fragments to Filecoin with CDN
+├── download.js            # Download fragments from Filecoin
+├── setup-payments.js      # One-time payment setup
+├── test-sentences.csv     # Example data for testing
+├── upload-results.json    # Upload results with CIDs
+├── .env                   # Your private key (DO NOT COMMIT)
+└── README.md             # This file
 ```
 
-## Next Steps
+## Usage Examples
 
-After successful testing:
-1. ✅ Filecoin integration working
-2. 🔄 Integrate with SAGA smart contract
-3. 🤖 Add AI inference worker
-4. 🎯 Build result aggregation
+### Upload CSV Data
+
+```javascript
+import { uploadFragmentsToFilecoin } from './upload.js';
+
+const results = await uploadFragmentsToFilecoin('data.csv', {
+  withCDN: true,      // Enable CDN for fast retrieval
+  datasetId: 12345    // Optional: use existing dataset
+});
+
+// Results include CIDs and CDN URLs
+results.forEach(r => {
+  console.log(`Fragment ${r.id}: ${r.cid}`);
+  console.log(`CDN URL: ${r.cdnUrl}`);
+});
+```
+
+### Download Fragments
+
+```javascript
+import { downloadFragmentsFromFilecoin } from './download.js';
+
+const cids = ['baga6ea4seaqXXXX', 'baga6ea4seaqYYYY'];
+const results = await downloadFragmentsFromFilecoin(cids, {
+  withCDN: true,
+  outputDir: './downloads'
+});
+```
+
+## CDN Support
+
+When CDN is enabled (`withCDN: true`), files are accessible via Filecoin Beam for fast global delivery:
+
+```
+https://{YOUR_ADDRESS}.calibration.filbeam.io/{PIECE_CID}
+```
+
+**Benefits:**
+- ⚡ Sub-second retrieval times globally
+- 🌍 Edge caching for low latency
+- 💰 Pay-per-egress billing
+- 📊 Built-in analytics
+
+## Architecture
+
+### Upload Flow
+
+1. Parse CSV into fragments
+2. Create Synapse SDK instance with CDN support
+3. Create storage context (auto-selects provider)
+4. Upload each fragment with metadata
+5. Return CIDs and CDN URLs
+
+### Download Flow
+
+1. Connect to Filecoin via Synapse SDK
+2. Download data using PieceCID
+3. Decode and parse JSON fragments
+4. Save to local files
+
+## Data Format
+
+Fragments are stored as JSON with minimum 127 bytes:
+
+```json
+{
+  "id": 0,
+  "data": { 
+    "text": "Your CSV row data here" 
+  },
+  "timestamp": "2025-11-22T10:30:00.000Z"
+}
+```
 
 ## Troubleshooting
 
 **Error: Insufficient USDFC balance**
-- Get more USDFC from the faucet
-- Each upload costs a small amount
-
-**Error: Transaction failed**
-- Check you have tFIL for gas fees
-- Verify you're on Calibration network
+- Run `npm run setup` to deposit funds
+- Get more USDFC from faucet
 
 **Error: Upload timeout**
-- Filecoin network may be slow
-- Try again or check network status
+- Filecoin uploads can take 30-60 seconds
+- Provider may be slow, try again
+- Check provider status at docs.filecoin.cloud
 
+**Error: Cannot find CID**
+- Wait a few minutes after upload for propagation
+- Verify CID format (should start with `baga6ea4seaq`)
+
+## Integration with Fragment
+
+This service is part of the Fragment distributed compute system:
+
+1. **Upload**: CSV data split into fragments and uploaded to Filecoin
+2. **SAGA Contract**: Routes fragment CIDs to available workers
+3. **Workers**: Download fragments, run AI inference, upload results
+4. **Aggregation**: Client downloads all results and combines
+
+## Resources
+
+- [Synapse SDK Docs](https://docs.filecoin.cloud)
+- [Filecoin Beam (CDN)](https://docs.filecoin.cloud/developer-guides/storage/storage-context)
+- [USDFC Token](https://forest-explorer.chainsafe.dev/)
+- [Fragment GitHub](https://github.com/yourusername/fragment)
+
+## License
+
+MIT
