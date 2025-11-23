@@ -186,7 +186,8 @@ async function listAllPieces() {
         const datasetData = await pdpServer.getDataSet(dataset.pdpVerifierDataSetId);
         const pieces = datasetData.pieces || [];
 
-        console.log(`\nDataset ${dataset.id} (${pieces.length} pieces):`);
+        const datasetId = dataset.pdpVerifierDataSetId || dataset.id;
+        console.log(`\nDataset ${datasetId} (${pieces.length} pieces):`);
         console.log("-".repeat(60));
 
         pieces.forEach((piece, i) => {
@@ -197,7 +198,7 @@ async function listAllPieces() {
           console.log(`      🌐 ${cdnUrl}`);
 
           allPieces.push({
-            datasetId: dataset.id,
+            datasetId,
             cid: v1Cid,
             size: piece.size,
             cdnUrl,
